@@ -33,6 +33,19 @@ export function imagineVideoDurationFromPrompt(prompt: string): number | undefin
   return Math.min(15, Math.max(1, seconds));
 }
 
+export function imagineVideoStartError(status: number, payload: { error?: unknown; message?: unknown }): string {
+  const err = payload.error;
+  const detail =
+    typeof err === "string"
+      ? err
+      : err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string"
+        ? (err as { message: string }).message
+        : typeof payload.message === "string"
+          ? payload.message
+          : "";
+  return detail ? `Imagine Video start failed (${status}): ${detail}` : `Imagine Video start failed (${status})`;
+}
+
 export function formatImagineVideoReply(result: XaiImagineVideoResult): string {
   const duration = result.duration ? ` (${result.duration}s)` : "";
   return [
@@ -59,7 +72,7 @@ export async function generateXaiVideo(input: XaiImagineVideoInput): Promise<Xai
     resolution: model === "grok-imagine-video-1.5" ? "720p" : "480p",
   };
   if (input.image?.dataBase64) {
-    body.image = `data:${input.image.mimeType || "image/png"};base64,${input.image.dataBase64}`;
+    body.image = { url: `data:${input.image.mimeType || "image/png"};base64,${input.image.dataBase64}` };
   }
   const started = await fetcher(VIDEO_START_URL, {
     method: "POST",
@@ -71,9 +84,13 @@ export async function generateXaiVideo(input: XaiImagineVideoInput): Promise<Xai
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   });
-  const startedPayload = (await started.json().catch(() => ({}))) as { request_id?: string; error?: unknown };
+  const startedPayload = (await started.json().catch(() => ({}))) as {
+    request_id?: string;
+    error?: unknown;
+    message?: unknown;
+  };
   if (!started.ok || !startedPayload.request_id) {
-    throw new Error(`Imagine Video start failed (${started.status})`);
+    throw new Error(imagineVideoStartError(started.status, startedPayload));
   }
   const deadline = Date.now() + (input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   while (Date.now() < deadline) {
