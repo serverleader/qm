@@ -7,8 +7,7 @@ const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
 const CLIENT_VERSION = "0.2.101";
 const CLIENT_NAME = "grok-shell";
-const SCOPE =
-  "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write";
+const SCOPE = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write";
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const AUTH_MAX_BYTES = 64 * 1024;
 
@@ -42,13 +41,16 @@ interface PendingDevice {
 const pending = new Map<string, PendingDevice>();
 type OAuthFetch = typeof fetch;
 
+const OS_LABELS: Record<string, string> = { darwin: "macos", win32: "windows" };
+const ARCH_LABELS: Record<string, string> = { arm64: "aarch64", x64: "x86_64" };
+
 function platformLabel(): string {
-  const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
-  const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+  const os = OS_LABELS[process.platform] ?? process.platform;
+  const arch = ARCH_LABELS[process.arch] ?? process.arch;
   return `${os}; ${arch}`;
 }
 
-export function buildXaiProxyHeaders(modelId?: string): Record<string, string> {
+function buildXaiProxyHeaders(modelId?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "User-Agent": `${CLIENT_NAME}/${CLIENT_VERSION} (${platformLabel()})`,
     "x-grok-client-identifier": CLIENT_NAME,
@@ -66,7 +68,7 @@ export function applyXaiSubscriptionRouting<T extends Model<Api>>(model: T): T {
   return {
     ...model,
     baseUrl: XAI_CLI_PROXY_BASE_URL,
-    headers: { ...(model.headers ?? {}), ...buildXaiProxyHeaders(model.id) },
+    headers: { ...model.headers, ...buildXaiProxyHeaders(model.id) },
   };
 }
 
@@ -111,10 +113,7 @@ export async function startXaiDeviceLogin(fetcher: OAuthFetch = fetch): Promise<
   };
 }
 
-export async function pollXaiDeviceLogin(
-  sessionId: string,
-  fetcher: OAuthFetch = fetch,
-): Promise<XaiDevicePoll> {
+export async function pollXaiDeviceLogin(sessionId: string, fetcher: OAuthFetch = fetch): Promise<XaiDevicePoll> {
   const session = pending.get(sessionId);
   if (!session) return { status: "expired" };
   if (Date.now() > session.expiresAt) {

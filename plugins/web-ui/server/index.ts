@@ -892,6 +892,35 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return relay(res, r);
     }
 
+    const projectSlackChannel = path.match(/^\/api\/projects\/([^/]+)\/slack-channel$/);
+    if (method === "PUT" && projectSlackChannel) {
+      const id = decodeURIComponent(projectSlackChannel[1]!);
+      let channel = "";
+      try {
+        const p = JSON.parse((await readBody(req)) || "{}") as { channel?: unknown };
+        if (typeof p.channel === "string") channel = p.channel.trim().slice(0, 200);
+      } catch (e) {
+        if (e instanceof PayloadTooLargeError) throw e;
+        return json(res, 400, { error: "bad_request" });
+      }
+      if (!channel) return json(res, 400, { error: "bad_request", message: "channel required" });
+      const r = await coreFetch(
+        "PUT",
+        `/v1/projects/${encodeURIComponent(id)}/slack-channel`,
+        JSON.stringify({ principalId: user, channel }),
+      );
+      return relay(res, r);
+    }
+    if (method === "DELETE" && projectSlackChannel) {
+      const id = decodeURIComponent(projectSlackChannel[1]!);
+      const r = await coreFetch(
+        "DELETE",
+        `/v1/projects/${encodeURIComponent(id)}/slack-channel`,
+        JSON.stringify({ principalId: user }),
+      );
+      return relay(res, r);
+    }
+
     const removeProjectMember = path.match(/^\/api\/projects\/([^/]+)\/members\/([^/]+)$/);
     if (method === "DELETE" && removeProjectMember) {
       const id = decodeURIComponent(removeProjectMember[1]!);
@@ -913,6 +942,24 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     if (method === "GET" && path === "/api/surface-config") {
       const r = await coreFetch("GET", "/v1/surface-config");
+      return relay(res, r);
+    }
+
+    if (method === "GET" && path === "/api/ui-state") {
+      const key = url.searchParams.get("key") ?? "";
+      const qs = new URLSearchParams({ principalId: user, key });
+      const r = await coreFetch("GET", `/v1/ui-state?${qs.toString()}`);
+      return relay(res, r);
+    }
+
+    if (method === "PUT" && path === "/api/ui-state") {
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse((await readBody(req)) || "{}") as Record<string, unknown>;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const r = await coreFetch("PUT", "/v1/ui-state", JSON.stringify({ ...body, principalId: user }));
       return relay(res, r);
     }
 
@@ -1554,6 +1601,18 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/runs/active") {
       const threadRef = url.searchParams.get("threadRef") ?? "";
       if (!threadRef.startsWith("web:")) return json(res, 404, { error: "not_found" });
+      let queued: Array<{ runId: string; text: string }> = [];
+      let durableRunId: string | null = null;
+      const durable = await coreFetch("GET", `/v1/runs?threadRef=${encodeURIComponent(threadRef)}`);
+      if (durable.status >= 200 && durable.status < 300) {
+        try {
+          const parsed = JSON.parse(durable.text) as { runId?: string | null; queued?: typeof queued };
+          durableRunId = parsed.runId ?? null;
+          queued = parsed.queued ?? [];
+        } catch {
+          /* leave the queue empty; the run lookups below still answer */
+        }
+      }
       const tryRun = async (runId: string, ownedByUser = true): Promise<boolean> => {
         const r = await coreFetch("GET", `/v1/runs/${encodeURIComponent(runId)}`);
         if (r.status < 200 || r.status >= 300) {
@@ -1572,23 +1631,15 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return false;
         }
         rememberRun(runId, user, threadRef);
-        json(res, 200, { runId, run });
+        const waiting = queued.filter((q) => q.runId !== runId);
+        json(res, 200, { runId, run, ...(waiting.length ? { queued: waiting } : {}) });
         return true;
       };
+      if (durableRunId && (await tryRun(durableRunId, false))) return;
       for (const runId of Array.from(activeRunsByThread.get(threadKey(user, threadRef)) ?? [])) {
         if (await tryRun(runId)) return;
       }
-      const d = await coreFetch("GET", `/v1/runs?threadRef=${encodeURIComponent(threadRef)}`);
-      if (d.status >= 200 && d.status < 300) {
-        let runId: string | null = null;
-        try {
-          runId = (JSON.parse(d.text) as { runId?: string | null }).runId ?? null;
-        } catch {
-          void 0;
-        }
-        if (runId && (await tryRun(runId, false))) return;
-      }
-      json(res, 200, { runId: null, run: null });
+      json(res, 200, { runId: null, run: null, ...(queued.length ? { queued } : {}) });
       return;
     }
 
@@ -1609,6 +1660,13 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
         `/v1/runs/${encodeURIComponent(id)}/signal`,
         JSON.stringify({ kind, ...(text !== undefined ? { text } : {}) }),
       );
+      return relay(res, r);
+    }
+
+    if (method === "POST" && path.startsWith("/api/runs/") && path.endsWith("/withdraw")) {
+      const id = decodeURIComponent(path.slice("/api/runs/".length, -"/withdraw".length));
+      const r = await coreFetch("POST", `/v1/runs/${encodeURIComponent(id)}/withdraw`);
+      if (r.status >= 200 && r.status < 300) forgetRun(id);
       return relay(res, r);
     }
 
@@ -1918,7 +1976,7 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
 
 const server = createServer((req, res) => {
   void handler(req, res).catch((err: unknown) => {
-    console.error(`[web-ui] 502 ${req.method ?? "?"} ${req.url ?? "?"}:`, err);
+    console.error("[web-ui] 502 %s %s: %s", req.method ?? "?", req.url ?? "?", String(err));
     if (!res.headersSent) json(res, 502, { error: "bad_gateway", message: "upstream error" });
     else res.end();
   });
@@ -1942,7 +2000,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       });
     })
     .catch((err: unknown) => {
-      console.error("[web-ui] failed to start:", err);
+      console.error("[web-ui] failed to start:", String(err));
       process.exit(1);
     });
 }
