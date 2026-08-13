@@ -66,14 +66,14 @@ test("pg session store: one-per-thread, TTL/fenced lease, monotonic log, visibil
     step: 0,
     model: "claude-x",
     scopeLabel: scope,
-    request: { messages: [] },
+    promptEnvelope: { system: "sys" },
   });
   await s.recordLlmRequest(a.id, {
     turnSeq: 0,
     step: 1,
     model: "claude-x",
     scopeLabel: scope,
-    request: { messages: [] },
+    promptEnvelope: { system: "sys" },
     truncated: true,
     ttftMs: 1200,
     durationMs: 8400,
@@ -102,7 +102,7 @@ test("pg session store: one-per-thread, TTL/fenced lease, monotonic log, visibil
     step: 0,
     model: "claude-x",
     scopeLabel: scope,
-    request: { messages: [] },
+    promptEnvelope: { system: "sys" },
   });
   assert.deepEqual(
     (await s.listLlmRequests(a.id, { orphans: true })).map((r) => r.turnSeq),
@@ -270,7 +270,7 @@ test("pg deleteSession: hard-removes the session and its rows, leaves others", {
     step: 0,
     model: "claude-x",
     scopeLabel: scope,
-    request: { messages: [] },
+    promptEnvelope: { system: "sys" },
   });
 
   await s.deleteSession(a.id);
@@ -923,6 +923,27 @@ test("pg run store: enqueue dedup, atomic one-per-session claim, fencing, ledger
   }
 });
 
+test("pg run store: waitFor survives a transient poll failure without an unhandled rejection", { skip }, async () => {
+  const { runs, close } = createPostgresRunStore(URL!);
+  let unhandled: unknown;
+  const onUnhandledRejection = (err: unknown): void => {
+    unhandled = err;
+  };
+  process.once("unhandledRejection", onUnhandledRejection);
+  try {
+    const r = (await runs.enqueue({ sessionId: "sWaitFor", request: turn("x") })).run;
+    const pending = runs.waitFor(r.id, 800);
+    // Kill the pool mid-poll: the next getRun() tick will reject, exercising the
+    // catch path instead of leaking an unhandled rejection out of setInterval.
+    await new Promise((res) => setTimeout(res, 50));
+    await close();
+    await assert.rejects(pending, /did not finish within 800ms/, "still settles via its own timeout, not a crash");
+  } finally {
+    process.removeListener("unhandledRejection", onUnhandledRejection);
+  }
+  assert.equal(unhandled, undefined, "a transient poll failure must not escape as an unhandled rejection");
+});
+
 test(
   "pg run store: releaseLease (deploy drain) hands the run back as a retry without spending budget; stale token is a no-op",
   { skip },
@@ -1249,6 +1270,44 @@ test("pg participant view: pin/color are per-participant, survive re-add, and cl
   const cleared = (await s.listByParticipant("U1")).find((x) => x.id === sess.id)!;
   assert.ok(!cleared.pinned);
   assert.equal(cleared.color ?? null, null, "null clears the color");
+});
+
+test("pg search: full-text over entries with prefix match, window ACL, and type filter", { skip }, async () => {
+  const s = createPostgresSessionStore(URL!);
+  const scope = scopeId("personal", "USRCH");
+  const sess = await s.getOrCreateByThread("srch-1", "dm", scope);
+  await s.addParticipant(sess.id, "USRCH", undefined, { includeHistory: true });
+
+  const att = await s.acquireLease(sess.id);
+  const lease = att.lease!;
+  await s.append(lease, {
+    type: "user",
+    payload: { text: "can you refresh the memo board data?", name: "josh" },
+    scopeLabel: scope,
+  });
+  await s.append(lease, {
+    type: "assistant",
+    payload: { text: "Done — pushed the memo board refresh." },
+    scopeLabel: scope,
+  });
+  await s.append(lease, { type: "tool_call", payload: { text: "memo board tool noise" }, scopeLabel: scope });
+  // A latecomer joins without history, then one more message lands.
+  await s.addParticipant(sess.id, "ULATE");
+  await s.append(lease, { type: "user", payload: { text: "memo board postscript" }, scopeLabel: scope });
+  await s.releaseLease(lease);
+
+  const hits = await s.searchEntries("USRCH", "memo boar");
+  assert.equal(hits.length, 3, "prefix terms match user and assistant text; tool calls are ignored");
+  assert.equal(hits[0]!.text, "memo board postscript", "newest first");
+  assert.equal(hits[2]!.author, "josh", "user hits carry the author");
+
+  const late = await s.searchEntries("ULATE", "memo");
+  assert.equal(late.length, 1, "a latecomer only searches inside their window");
+  assert.equal(late[0]!.text, "memo board postscript");
+
+  assert.deepEqual(await s.searchEntries("UNONE", "memo"), [], "a non-participant sees nothing");
+  assert.deepEqual(await s.searchEntries("USRCH", "  !!  "), [], "an unusable query is empty, not an error");
+  assert.deepEqual(await s.searchEntries("USRCH", "memo missing"), [], "every term must match");
 });
 
 test(

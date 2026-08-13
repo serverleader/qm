@@ -54,6 +54,7 @@ import { applyXaiSubscriptionRouting } from "../model/xai-oauth.ts";
 import type { XaiAuthMode } from "../model/model-credential-store.ts";
 import {
   defineHarness,
+  envelopeWithoutMessages,
   type Harness,
   type HarnessCompactInput,
   type HarnessDetectInput,
@@ -63,6 +64,7 @@ import {
   type GapWork,
 } from "./harness.ts";
 import { coreToolOptions, createPiTools, pauseStampAfterToolCall, type ToolContextRef } from "./pi-tools.ts";
+import type { McpToolDescriptor } from "../mcp/mcp-tool-service.ts";
 import { startSignalPoll, type RunSignalStore } from "../runs/run-signal-store.ts";
 import {
   planColdStartSeed,
@@ -79,6 +81,8 @@ import { compactTranscript, deterministicCompactSummary, estimateHistoryTokens }
 import { countTokens } from "../util/tokens.ts";
 import { parseSecurityScreenVerdict, SECURITY_SCREEN_SYSTEM_PROMPT } from "../security/security-posture.ts";
 import { errMessage } from "../util/errors.ts";
+import { createGrindMeter, meterGrindCall } from "./grind.ts";
+import { enforceGoal, goalSteeringNote, meterGoalCall, type GoalRecord } from "./goal.ts";
 
 export interface PiHarnessOptions {
   modelId?: string | ((scope?: ScopeId) => string | undefined);
@@ -99,6 +103,7 @@ export interface PiHarnessOptions {
   scratchExec?: boolean;
   ownerAuthExec?: boolean;
   reachExec?: boolean;
+  mcpTools?: () => McpToolDescriptor[];
   controlTools?: boolean;
   turnWallClockMs?: number;
   execTimeoutMs?: number;
@@ -774,28 +779,28 @@ export function transportFromModel(model: unknown): LlmTransportMeta | undefined
 export function sanitizeLlmPayload(
   payload: unknown,
   model?: unknown,
-): { request: unknown; truncated: boolean; transport?: LlmTransportMeta } {
+): { envelope: unknown; truncated: boolean; transport?: LlmTransportMeta } {
   const transport = transportFromModel(model);
-  const withTransport = (r: { request: unknown; truncated: boolean }) => (transport ? { ...r, transport } : r);
+  const withTransport = (r: { envelope: unknown; truncated: boolean }) => (transport ? { ...r, transport } : r);
   let redacted: unknown;
   try {
-    redacted = redactImageBytes(payload);
+    redacted = redactImageBytes(envelopeWithoutMessages(payload));
   } catch {
-    return withTransport({ request: { note: "payload not capturable" }, truncated: true });
+    return withTransport({ envelope: { note: "payload not capturable" }, truncated: true });
   }
   let json: string;
   try {
     json = JSON.stringify(redacted);
   } catch {
-    return withTransport({ request: { note: "payload not serializable" }, truncated: true });
+    return withTransport({ envelope: { note: "payload not serializable" }, truncated: true });
   }
   if (json.length > MAX_CAPTURED_PAYLOAD_CHARS) {
     return withTransport({
-      request: { truncated: true, bytes: json.length, preview: json.slice(0, MAX_CAPTURED_PAYLOAD_CHARS) },
+      envelope: { truncated: true, bytes: json.length, preview: json.slice(0, MAX_CAPTURED_PAYLOAD_CHARS) },
       truncated: true,
     });
   }
-  return withTransport({ request: redacted, truncated: false });
+  return withTransport({ envelope: redacted, truncated: false });
 }
 
 export function thinkingBlocksFromContent(
@@ -1273,6 +1278,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
   const scratchExec = opts?.scratchExec ?? false;
   const ownerAuthExec = opts?.ownerAuthExec ?? false;
   const reachExec = opts?.reachExec ?? false;
+  const mcpTools = opts?.mcpTools;
   const controlTools = opts?.controlTools ?? false;
   const defaultTurnWallClockMs = opts?.turnWallClockMs ?? CONFIG_DEFAULTS.turnWallClockSec * 1000;
   const signals = opts?.signals;
@@ -1345,6 +1351,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
           scratchExec,
           ownerAuthExec,
           reachExec,
+          ...(mcpTools ? { mcpTools } : {}),
           controlTools,
           ...(credentialExecServices?.length ? { credentialExecServices } : {}),
           ...(surfaceTools ? { surfaceTools: true } : {}),
@@ -1563,7 +1570,29 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
             },
             scopeLabel: turn.scopeLabel,
           });
-          const modelPrompt = [turn.input, turn.environment].filter((s) => s && s.trim()).join("\n\n");
+          const grindMeter = createGrindMeter();
+          // Rehydrate a persisted goal (goals survive turns until closed).
+          if (!entry.ref.goal) {
+            for (let i = turn.history.length - 1; i >= 0; i--) {
+              const h = turn.history[i]!;
+              if (h.type !== "system") continue;
+              const payload = h.payload as { kind?: string; goal?: GoalRecord } | null;
+              if (payload?.kind === "goal" && payload.goal) {
+                entry.ref.goal = payload.goal;
+                break;
+              }
+            }
+          }
+          entry.ref.goalMeter = grindMeter;
+          entry.ref.goalRound = 0;
+          const activeGoalAtStart = entry.ref.goal?.status === "active" ? entry.ref.goal : null;
+          const modelPrompt = [
+            activeGoalAtStart ? goalSteeringNote(activeGoalAtStart) : "",
+            turn.input,
+            turn.environment,
+          ]
+            .filter((s) => s && s.trim())
+            .join("\n\n");
           entry.ref.llmCapture = [];
           entry.ref.modelCalls = 0;
           entry.ref.modelDispatch = [];
@@ -1636,6 +1665,12 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
             } else if (event.type === "message_end" && (event.message as { role?: string }).role === "assistant") {
               const end = Date.now();
               const u = (event.message as { usage?: PiUsageShape }).usage;
+              meterGrindCall(
+                grindMeter,
+                piUsageToCallUsage(u),
+                (entry.agentSession.model as { id?: string } | undefined)?.id ?? effectiveModel,
+              );
+              if (entry.ref.goal?.status === "active") meterGoalCall(entry.ref.goal, piUsageToCallUsage(u));
               callStats.push({
                 ttftMs: curStart !== undefined && curFirst !== undefined ? curFirst - curStart : null,
                 durationMs: curStart !== undefined ? end - curStart : null,
@@ -1697,7 +1732,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
                   turnSeq: userEntry.seq,
                   step,
                   model: captured[step]!.transport?.modelId ?? effectiveModel,
-                  request: captured[step]!.request,
+                  promptEnvelope: captured[step]!.envelope,
                   truncated: captured[step]!.truncated,
                   transport: captured[step]!.transport ?? null,
                   ttftMs: stat?.ttftMs ?? null,
@@ -1773,6 +1808,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
                 )
               : null;
           const promptStart = Date.now();
+          let grindWaiverNote = "";
           const attemptRefusalFallback = async (refusal: string): Promise<boolean> => {
             if (userAborted || turn.cancel?.aborted) return false;
             const fromId = (entry.agentSession.model as { id?: string } | undefined)?.id;
@@ -1818,6 +1854,42 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
                 abort: () => entry.agentSession.abort(),
               },
             );
+            if (wallClock === "ok" && entry.ref.goal?.status === "active" && !userAborted && !turn.cancel?.aborted) {
+              const goalResult = await enforceGoal({
+                goal: entry.ref.goal,
+                meter: grindMeter,
+                outcome: wallClock,
+                ok: "ok" as const,
+                toolCalls: () =>
+                  entry.agentSession.messages
+                    .slice(messagesBefore)
+                    .filter((message) => contentHasToolUse((message as { role?: string; content?: unknown }).content))
+                    .length,
+                blocked: () =>
+                  userAborted ||
+                  !!turn.cancel?.aborted ||
+                  !!entry.ref.pausedOnApproval ||
+                  !!entry.ref.pendingApprovals?.length,
+                beforePrompt: async (note) => {
+                  console.error(
+                    `[goal] continuation session=${turn.session.id} round=${(entry.ref.goalRound ?? 0) + 1}`,
+                  );
+                  void note;
+                  entry.ref.goalRound = (entry.ref.goalRound ?? 0) + 1;
+                  entry.ref.silentRequested = false;
+                  await thinkTail;
+                },
+                prompt: (note) => {
+                  const capMs = turnWallClockMs > 0 ? turnWallClockMs - (Date.now() - promptStart) : turnWallClockMs;
+                  return raceTurnWallClock(entry.agentSession.prompt(note), {
+                    capMs,
+                    abort: () => entry.agentSession.abort(),
+                  });
+                },
+              });
+              wallClock = goalResult.outcome;
+              grindWaiverNote = goalResult.waiverNote;
+            }
             if (wallClock === "ok" && !userAborted && !turn.cancel?.aborted) {
               const refusal = providerRefusalError(entry.agentSession, messagesBefore);
               if (refusal) {
@@ -1913,6 +1985,15 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
           if (userAborted) {
             const partial = entry.agentSession.getLastAssistantText() ?? "";
             const reply = partial.trim() ? partial : "(stopped)";
+            if (entry.ref.goal) {
+              const g = entry.ref.goal;
+              await turn.emit({
+                type: "system",
+                payload: { kind: "goal", goal: { ...g } },
+                scopeLabel: turn.scopeLabel,
+              });
+              if (g.status !== "active") entry.ref.goal = null;
+            }
             const finalEntry = await turn.emit({
               type: "assistant",
               payload: { text: reply },
@@ -1930,7 +2011,9 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
             return cacheUsage ? { ...base, cacheUsage } : base;
           }
           const closingText = recoveryDead ? "" : (piLastAssistantTextOrThrow(entry.agentSession) ?? "");
-          const reply = entry.ref.silentRequested ? "" : closingText;
+          const closingTextWithWaiver = [closingText, grindWaiverNote].filter(Boolean).join("\n\n");
+          // A stall auto-waive stays visible even when the final stop attempt was a silent finish.
+          const reply = entry.ref.silentRequested && !grindWaiverNote ? "" : closingTextWithWaiver;
           const finalEntry = await turn.emit({
             type: "assistant",
             payload: { text: reply },
@@ -2031,7 +2114,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
             turnSeq: null,
             step: -1,
             model: modelId,
-            request: { system: SECURITY_SCREEN_SYSTEM_PROMPT, messages: [{ role: "user", content: payload }] },
+            promptEnvelope: { system: SECURITY_SCREEN_SYSTEM_PROMPT, messages: [{ role: "user", content: payload }] },
             truncated: false,
           });
           return parseSecurityScreenVerdict(

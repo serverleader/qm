@@ -461,6 +461,16 @@ async function listSessions(ctx: ApiCtx): Promise<void> {
   return sendJson(res, 200, { sessions: await app.listSessions(principalId) });
 }
 
+async function searchSessions(ctx: ApiCtx): Promise<void> {
+  const { res, app, url } = ctx;
+  const principalId = url.searchParams.get("principalId");
+  if (!principalId) return sendJson(res, 400, { error: "bad_request", message: "principalId required" });
+  const query = url.searchParams.get("q") ?? "";
+  const rawLimit = Number(url.searchParams.get("limit") ?? "");
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
+  return sendJson(res, 200, { hits: await app.searchSessions(principalId, query, limit) });
+}
+
 async function listContexts(ctx: ApiCtx): Promise<void> {
   const { res, app, url } = ctx;
   const principalId = url.searchParams.get("principalId");
@@ -1311,6 +1321,43 @@ async function putRuntimeConfig(ctx: ApiCtx): Promise<void> {
   return sendJson(ctx.res, 200, await runtimeConfigBody(ctx, target.scope));
 }
 
+async function getChannelHeaderPin(ctx: ApiCtx): Promise<void> {
+  if (!ctx.deps.config) return sendJson(ctx.res, 404, { error: "not_found" });
+  const target = await runtimeTarget(ctx);
+  if (!target) return sendJson(ctx.res, 403, { error: "forbidden" });
+  const [on, configured, def] = await Promise.all([
+    ctx.deps.config.getChannelHeaderPinDurable(target.scope),
+    ctx.deps.config.getChannelHeaderPinOverrideDurable(target.scope),
+    ctx.deps.config.getChannelHeaderPinDefaultDurable(),
+  ]);
+  return sendJson(ctx.res, 200, { scopeId: target.scope, on, configured, default: def });
+}
+
+async function putChannelHeaderPin(ctx: ApiCtx): Promise<void> {
+  if (!ctx.deps.config || !isObj(ctx.body)) return sendJson(ctx.res, 400, { error: "bad_request" });
+  if (ctx.capability && !livePersonCapability(ctx.capability))
+    return sendJson(ctx.res, 403, { error: "live_actor_required" });
+  const target = await runtimeTarget(ctx);
+  if (!target) return sendJson(ctx.res, 403, { error: "forbidden" });
+  if (typeof ctx.body.on !== "boolean" && ctx.body.on !== null)
+    return sendJson(ctx.res, 400, {
+      error: "bad_request",
+      message: "expected { on: boolean | null } (null reverts to the org default)",
+    });
+  await ctx.deps.config.setChannelHeaderPinLatest(target.scope, ctx.body.on);
+  audit(ctx.deps, {
+    principalId: target.actorId,
+    action: "channel-header-pin.update",
+    resource: "channel-header-pin",
+    scopeLabel: target.scope,
+  });
+  return sendJson(ctx.res, 200, {
+    scopeId: target.scope,
+    on: ctx.body.on ?? (await ctx.deps.config.getChannelHeaderPinDefaultDurable()),
+    configured: ctx.body.on,
+  });
+}
+
 function getSoul(ctx: ApiCtx): void {
   const { res, app, url, capability } = ctx;
   const scopeIdVal = capability?.scopeId ?? url.searchParams.get("scopeId");
@@ -1359,6 +1406,7 @@ export async function postSoul(ctx: ApiCtx): Promise<void> {
 
 export const surfaceRoutes: ReadonlyArray<Route<ApiCtx>> = [
   { method: "POST", path: "/v1/session-cap", auth: "source", handle: sessionCapability },
+  { method: "GET", path: "/v1/sessions/search", auth: "source", handle: searchSessions },
   { method: "POST", path: "/v1/sessions/:id/title", auth: "source", handle: regenerateSessionTitle },
   { method: "POST", path: "/v1/sessions/:id/fork", auth: "source", handle: forkSession },
   { method: "GET", path: "/v1/sessions/:id/approvals", auth: "source", handle: listSessionApprovals },
@@ -1414,6 +1462,8 @@ export const surfaceRoutes: ReadonlyArray<Route<ApiCtx>> = [
   { method: "GET", path: "/v1/surface-config", auth: "source", handle: getSurfaceConfig },
   { method: "GET", path: "/v1/runtime-config", auth: "either", handle: getRuntimeConfig },
   { method: "PUT", path: "/v1/runtime-config", auth: "either", handle: putRuntimeConfig },
+  { method: "GET", path: "/v1/channel-header-pin", auth: "either", handle: getChannelHeaderPin },
+  { method: "PUT", path: "/v1/channel-header-pin", auth: "either", handle: putChannelHeaderPin },
   { method: "GET", path: "/v1/soul", auth: "either", handle: getSoul },
   { method: "POST", path: "/v1/soul", auth: "either", handle: postSoul },
 ];
