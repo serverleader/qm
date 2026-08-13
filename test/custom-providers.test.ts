@@ -69,7 +69,7 @@ test("custom models are gated to pi and mock harnesses", () => {
 
 test("a registered custom model is serviceable regardless of built-in key availability", () => {
   setCustomProviders([GATEWAY]);
-  assert.equal(modelServiceable("acme-large", { anthropic: false, openai: false, openrouter: false }), true);
+  assert.equal(modelServiceable("acme-large", { anthropic: false, openai: false, openrouter: false, xai: false }), true);
 });
 
 test("catalog lists custom models; clearing the registry removes them", () => {
@@ -82,6 +82,7 @@ test("catalog lists custom models; clearing the registry removes them", () => {
 
 test("spec validation rejects reserved ids, bad slugs, bad URLs, and empty model lists", () => {
   assert.throws(() => validateCustomProviderSpec({ ...GATEWAY, id: "openai" }), /reserved/);
+  assert.throws(() => validateCustomProviderSpec({ ...GATEWAY, id: "xai" }), /reserved/);
   assert.throws(() => validateCustomProviderSpec({ ...GATEWAY, id: "Not A Slug" }), /slug/);
   assert.throws(() => validateCustomProviderSpec({ ...GATEWAY, baseUrl: "ftp://x" }), /http/);
   assert.throws(() => validateCustomProviderSpec({ ...GATEWAY, baseUrl: "https://x?y=1" }), /query/);

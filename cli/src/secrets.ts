@@ -54,6 +54,13 @@ export const FIRST_PARTY_SECRET_SPECS: readonly SecretSpec[] = [
       'OpenRouter API key: bills the base model when modelProvider is "openrouter", an optional deployment fallback otherwise.',
   },
   {
+    name: "XAI_API_KEY",
+    service: "core",
+    required: false,
+    description:
+      "Optional xAI console API key. SuperGrok subscribers sign in from Admin instead and do not need this key.",
+  },
+  {
     name: "OPENAI_API_KEY",
     service: "core",
     required: {

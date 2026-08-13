@@ -15,6 +15,10 @@ test("web UI resolves models from the shared catalog without privileging a provi
   const openrouter = getBaseModel("openrouter/auto");
   assert.equal(openrouter.provider, "openrouter");
 
+  const grok = getBaseModel("grok-4.6");
+  assert.equal(grok.id, "grok-4.6");
+  assert.equal(grok.provider, "xai");
+
   assert.throws(() => getBaseModel("claude-not-real"), /Unsupported/);
 });
 

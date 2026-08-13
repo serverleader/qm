@@ -3923,6 +3923,18 @@
                   <input type="password" id="onboarding-model-key" autocomplete="off" placeholder="Write-only API key"
                 /></label>
               </div>
+              <div id="onboarding-xai-oauth" class="hidden" style="margin-top: 14px">
+                <p class="hint">
+                  SuperGrok / X Premium: sign in with your subscription. No console API key or credits required.
+                </p>
+                <p id="onboarding-xai-oauth-code" class="hint"></p>
+                <div class="obactions">
+                  <button type="button" id="onboarding-xai-oauth-start">Sign in with SuperGrok</button>
+                  <a class="header-button hidden" id="onboarding-xai-oauth-link" href="#" target="_blank" rel="noopener noreferrer"
+                    >Open xAI approval</a
+                  >
+                </div>
+              </div>
               <div class="foot">
                 <button class="primary" id="onboarding-model-save">Validate and save</button
                 ><button class="danger" id="onboarding-model-delete">Disable this provider</button
@@ -7033,6 +7045,7 @@
         anthropic: "Anthropic",
         openai: "OpenAI",
         openrouter: "OpenRouter — hosted open models",
+        xai: "xAI (Grok)",
       };
       function onboardingProviderForModel(modelId) {
         const owning = Object.entries(onboardingModels).find(([, models]) =>
@@ -7055,10 +7068,18 @@
           const option = document.createElement("option");
           option.value = status.provider;
           const label = MODEL_PROVIDER_LABELS[status.provider] || connectorName(status.provider);
-          option.textContent = status.configured ? label + " — key configured" : label;
+          option.textContent = status.configured
+            ? label + (status.authMode === "oauth" ? " — SuperGrok signed in" : " — key configured")
+            : label;
           select.appendChild(option);
         });
         if (preferred && [...select.options].some((option) => option.value === preferred)) select.value = preferred;
+        syncOnboardingXaiOauth();
+      }
+      function syncOnboardingXaiOauth() {
+        const panel = $("onboarding-xai-oauth");
+        if (!panel) return;
+        panel.classList.toggle("hidden", $("onboarding-model-provider").value !== "xai");
       }
       function renderOnboardingModelOptions(preferred) {
         const provider = $("onboarding-model-provider").value;
@@ -7105,7 +7126,13 @@
         $("onboarding-model-summary").textContent = !baseModel
           ? "No base model is configured yet — pick a provider and model below."
           : baseStatus?.configured
-            ? baseModel + " · " + (baseStatus.source === "admin" ? "admin-managed key" : "deployment key")
+            ? baseModel +
+              " · " +
+              (baseStatus.authMode === "oauth"
+                ? "SuperGrok subscription"
+                : baseStatus.source === "admin"
+                  ? "admin-managed key"
+                  : "deployment key")
             : baseModel +
               " cannot run until its " +
               (MODEL_PROVIDER_LABELS[baseProvider] || connectorName(baseProvider)) +
@@ -7136,13 +7163,71 @@
           : "Add Google, GitHub, Notion, or other OAuth clients to make those connectors available.";
         viewLoadedAt.onboarding = Date.now();
       }
-      $("onboarding-model-provider").onchange = () => renderOnboardingModelOptions();
+      $("onboarding-model-provider").onchange = () => {
+        renderOnboardingModelOptions();
+        syncOnboardingXaiOauth();
+      };
+      let xaiOauthTimer = null;
+      $("onboarding-xai-oauth-start").onclick = async () => {
+        const startBtn = $("onboarding-xai-oauth-start");
+        const link = $("onboarding-xai-oauth-link");
+        startBtn.disabled = true;
+        if (xaiOauthTimer) clearInterval(xaiOauthTimer);
+        setStatus("st-onboarding-model", "Starting SuperGrok sign-in…", "saving", true);
+        const started = await api("POST", "/api/model-providers/xai/oauth/start", {});
+        if (!started.ok) {
+          startBtn.disabled = false;
+          setStatus("st-onboarding-model", started.data?.message || "Could not start SuperGrok sign-in.", "err", true);
+          return;
+        }
+        const uri = started.data.verificationUriComplete || started.data.verificationUri;
+        $("onboarding-xai-oauth-code").textContent =
+          "Approve this code on xAI: " + started.data.userCode + ". Keep this page open.";
+        link.href = uri;
+        link.classList.remove("hidden");
+        setStatus("st-onboarding-model", "Waiting for SuperGrok approval…", "saving", true);
+        const sessionId = started.data.sessionId;
+        const intervalMs = Math.max(2, Number(started.data.interval) || 5) * 1000;
+        xaiOauthTimer = setInterval(async () => {
+          const polled = await api("POST", "/api/model-providers/xai/oauth/poll", { sessionId });
+          if (!polled.ok) {
+            clearInterval(xaiOauthTimer);
+            startBtn.disabled = false;
+            setStatus("st-onboarding-model", polled.data?.message || "SuperGrok sign-in failed.", "err", true);
+            return;
+          }
+          if (polled.data.status === "pending" || polled.data.status === "slow_down") return;
+          clearInterval(xaiOauthTimer);
+          startBtn.disabled = false;
+          if (polled.data.status !== "approved") {
+            setStatus(
+              "st-onboarding-model",
+              polled.data.status === "denied"
+                ? "SuperGrok sign-in was denied."
+                : "SuperGrok sign-in expired. Try again.",
+              "err",
+              true,
+            );
+            return;
+          }
+          const modelId = $("onboarding-model-id").value;
+          if (modelId) await api("PUT", "/api/scopes/" + encodeURIComponent(orgScope()) + "/base-model", { modelId });
+          await loadOnboarding();
+          setStatus("st-onboarding-model", "SuperGrok signed in. Base model saved.", "ok");
+        }, intervalMs);
+      };
       $("onboarding-model-save").onclick = async () => {
         const provider = $("onboarding-model-provider").value;
         const apiKey = $("onboarding-model-key").value.trim();
         const modelId = $("onboarding-model-id").value;
         if (!apiKey) {
-          setStatus("st-onboarding-model", "Enter the provider API key.", "err");
+          setStatus(
+            "st-onboarding-model",
+            provider === "xai"
+              ? "Enter an xAI API key, or use Sign in with SuperGrok."
+              : "Enter the provider API key.",
+            "err",
+          );
           return;
         }
         $("onboarding-model-save").disabled = true;

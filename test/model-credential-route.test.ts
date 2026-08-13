@@ -38,6 +38,7 @@ function start(
       anthropic: Boolean(config.anthropicApiKey),
       openai: Boolean(config.openaiApiKey),
       openrouter: Boolean(config.openrouterApiKey),
+      xai: Boolean(config.xaiApiKey),
     },
     admin: built.admin,
     auditLog: built.auditLog,
@@ -60,6 +61,7 @@ test("admin model credentials are encrypted, write-only, live, and removable", a
         { provider: "anthropic", configured: true, source: "environment" },
         { provider: "openai", configured: false, source: "absent" },
         { provider: "openrouter", configured: false, source: "absent" },
+        { provider: "xai", configured: false, source: "absent" },
       ],
       models: [
         { id: "claude-fable-5", name: "Claude Fable 5", provider: "anthropic" },
@@ -71,6 +73,9 @@ test("admin model credentials are encrypted, write-only, live, and removable", a
         { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai" },
         { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", provider: "openai" },
         { id: "openrouter/auto", name: "OpenRouter Auto", provider: "openrouter" },
+        { id: "grok-4.6", name: "Grok 4.6", provider: "xai" },
+        { id: "grok-4.5", name: "Grok 4.5", provider: "xai" },
+        { id: "grok-4.3", name: "Grok 4.3", provider: "xai" },
       ],
     });
     const scopeBefore = await fetch(`${srv.base}/v1/admin/scopes/org%3Adefault-org`, { headers: ADMIN });
@@ -110,6 +115,73 @@ test("admin model credentials are encrypted, write-only, live, and removable", a
     assert.equal(removed.status, 200);
     assert.equal(await srv.built.modelCredentials.resolve("openai"), null);
     assert.equal(await srv.built.modelCredentials.resolve("anthropic"), "deployment-anthropic-key");
+  } finally {
+    await srv.close();
+  }
+});
+
+test("SuperGrok device-code sign-in stores OAuth tokens and marks xAI configured", async () => {
+  let tokenCalls = 0;
+  const srv = start({}, async (input, init) => {
+    const url = String(input);
+    if (url.includes("/oauth2/device/code")) {
+      return new Response(
+        JSON.stringify({
+          device_code: "device-secret",
+          user_code: "QWER-1234",
+          verification_uri: "https://auth.x.ai/device",
+          verification_uri_complete: "https://auth.x.ai/device?user_code=QWER-1234",
+          expires_in: 600,
+          interval: 1,
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("/oauth2/token")) {
+      tokenCalls += 1;
+      if (tokenCalls === 1) return new Response(JSON.stringify({ error: "authorization_pending" }), { status: 400 });
+      return new Response(
+        JSON.stringify({ access_token: "supergrok-access", refresh_token: "supergrok-refresh", expires_in: 3600 }),
+        { status: 200 },
+      );
+    }
+    return new Response(null, { status: 200 });
+  });
+  try {
+    const started = await fetch(`${srv.base}/v1/admin/model-providers/xai/oauth/start`, {
+      method: "POST",
+      headers: ADMIN,
+      body: "{}",
+    });
+    assert.equal(started.status, 200);
+    const startBody = (await started.json()) as { sessionId: string; userCode: string };
+    assert.equal(startBody.userCode, "QWER-1234");
+    assert.equal(JSON.stringify(startBody).includes("device-secret"), false);
+
+    const pending = await fetch(`${srv.base}/v1/admin/model-providers/xai/oauth/poll`, {
+      method: "POST",
+      headers: ADMIN,
+      body: JSON.stringify({ sessionId: startBody.sessionId }),
+    });
+    assert.equal(pending.status, 200);
+    assert.equal(((await pending.json()) as { status: string }).status, "pending");
+
+    const approved = await fetch(`${srv.base}/v1/admin/model-providers/xai/oauth/poll`, {
+      method: "POST",
+      headers: ADMIN,
+      body: JSON.stringify({ sessionId: startBody.sessionId }),
+    });
+    assert.equal(approved.status, 200);
+    const approvedBody = (await approved.json()) as {
+      status: string;
+      provider: { provider: string; configured: boolean; authMode?: string };
+    };
+    assert.equal(approvedBody.status, "approved");
+    assert.equal(approvedBody.provider.configured, true);
+    assert.equal(approvedBody.provider.authMode, "oauth");
+    assert.equal(await srv.built.modelCredentials.resolve("xai"), "supergrok-access");
+    assert.equal(await srv.built.modelCredentials.authMode("xai"), "oauth");
+    assert.doesNotMatch(JSON.stringify(approvedBody), /supergrok-access|supergrok-refresh|device-secret/);
   } finally {
     await srv.close();
   }

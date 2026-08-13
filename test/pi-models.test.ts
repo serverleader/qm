@@ -15,12 +15,16 @@ import {
   contextTokenBudgetForModel,
 } from "../src/model/pi-models.ts";
 
+test("xAI is a first-class model provider", () => {
+  assert.ok((MODEL_PROVIDERS as readonly string[]).includes("xai"));
+});
+
 test("every selectable base model resolves against the pi-ai registry", () => {
   for (const m of SELECTABLE_BASE_MODELS) {
     const model = getRequiredModel(m.id);
     assert.equal(model.id, m.id);
     assert.ok(
-      ["anthropic", "openai", "openrouter"].includes(String(model.provider)),
+      ["anthropic", "openai", "openrouter", "xai"].includes(String(model.provider)),
       `${m.id} has unexpected provider ${model.provider}`,
     );
   }
@@ -31,6 +35,19 @@ test("selectable models span providers (multi-provider is wired)", () => {
   assert.ok(providers.has("anthropic"), "expected at least one Anthropic model");
   assert.ok(providers.has("openai"), "expected at least one OpenAI model (gpt-5.6)");
   assert.ok(providers.has("openrouter"), "expected an OpenRouter-hosted open-model option");
+  assert.ok(providers.has("xai"), "expected at least one xAI Grok model");
+});
+
+test("Grok models resolve as first-class xAI openai-completions models", () => {
+  const grok = getRequiredModel("grok-4.6");
+  assert.equal(grok.id, "grok-4.6");
+  assert.equal(String(grok.provider), "xai");
+  assert.ok(grok.api === "openai-completions" || grok.api === "openai-responses");
+  assert.equal(grok.baseUrl, "https://api.x.ai/v1");
+  assert.equal(grok.contextWindow, 500_000);
+  assert.equal(getRequiredModel("grok-4.5").provider, "xai");
+  assert.equal(getRequiredModel("grok-4.3").provider, "xai");
+  assert.equal(getRequiredModel("grok-4.3").contextWindow, 1_000_000);
 });
 
 test("unknown models are not silently accepted", () => {
@@ -60,6 +77,7 @@ test("the default base model follows the providers a deployment can actually bil
   }
   assert.equal(defaultModelForHarness("pi", undefined, onlyProvider("openrouter")), "openrouter/auto");
   assert.equal(defaultModelForHarness("pi", undefined, onlyProvider("openai")), "gpt-5.6-sol");
+  assert.equal(defaultModelForHarness("pi", undefined, onlyProvider("xai")), "grok-4.6");
 });
 
 test("provider-blind callers and explicit pins keep the shipped default", () => {
@@ -71,7 +89,7 @@ test("provider-blind callers and explicit pins keep the shipped default", () => 
     "an explicit pin is never silently swapped — the mismatch is rejected at config load instead",
   );
   assert.equal(
-    defaultModelForHarness("pi", undefined, { anthropic: false, openai: false, openrouter: false }),
+    defaultModelForHarness("pi", undefined, { anthropic: false, openai: false, openrouter: false, xai: false }),
     "claude-opus-5",
     "with no provider at all the shipped default stands rather than an arbitrary pick",
   );
@@ -84,6 +102,10 @@ test("a provider that cannot serve a harness has no default model for it", () =>
   assert.equal(defaultModelForProvider("codex", "anthropic"), undefined, "the Codex CLI runs no Anthropic model");
   assert.equal(defaultModelForProvider("claude", "openrouter"), undefined, "the Claude CLI runs no OpenRouter model");
   assert.equal(defaultModelForProvider("opencode", "openrouter"), undefined, "opencode has no OpenRouter route");
+  assert.equal(defaultModelForProvider("pi", "xai"), "grok-4.6");
+  assert.equal(defaultModelForProvider("opencode", "xai"), "grok-4.6");
+  assert.equal(defaultModelForProvider("codex", "xai"), undefined, "the Codex CLI runs no xAI model");
+  assert.equal(defaultModelForProvider("claude", "xai"), undefined, "the Claude CLI runs no xAI model");
 });
 
 test("the curated catalog contains only current model families", () => {
@@ -99,6 +121,9 @@ test("the curated catalog contains only current model families", () => {
       "gpt-5.6-terra",
       "gpt-5.6-luna",
       "openrouter/auto",
+      "grok-4.6",
+      "grok-4.5",
+      "grok-4.3",
     ],
   );
   assert.equal(getRequiredModel("gpt-5.6-sol").contextWindow, 1_050_000);
@@ -118,11 +143,13 @@ test("auxiliary models come from the configured base model's own provider", () =
     "an OpenAI deployment gets an OpenAI auxiliary, never Haiku",
   );
   assert.equal(auxiliaryModelFor("gpt-5.6-terra"), "gpt-5.6-luna");
+  assert.equal(auxiliaryModelFor("grok-4.6"), "grok-4.3", "an xAI deployment gets Grok 4.3 as the cheap auxiliary");
 });
 
 test("the Anthropic auxiliary is resolvable by provider, so Anthropic-only surfaces keep working", () => {
   assert.equal(auxiliaryModelForProvider("anthropic"), "claude-haiku-4-5");
   assert.equal(auxiliaryModelForProvider("openai"), "gpt-5.6-luna");
+  assert.equal(auxiliaryModelForProvider("xai"), "grok-4.3");
   assert.equal(auxiliaryModelForProvider("nope"), undefined);
 });
 
@@ -141,10 +168,11 @@ test("auxiliary selection falls back to the base model when its provider has no 
 
 test("an auxiliary is never less serviceable than the base model it was derived from", () => {
   const providerSets = [
-    { anthropic: true, openai: false, openrouter: false },
-    { anthropic: false, openai: true, openrouter: false },
-    { anthropic: false, openai: false, openrouter: true },
-    { anthropic: false, openai: false, openrouter: false },
+    { anthropic: true, openai: false, openrouter: false, xai: false },
+    { anthropic: false, openai: true, openrouter: false, xai: false },
+    { anthropic: false, openai: false, openrouter: true, xai: false },
+    { anthropic: false, openai: false, openrouter: false, xai: true },
+    { anthropic: false, openai: false, openrouter: false, xai: false },
   ];
   for (const m of SELECTABLE_BASE_MODELS) {
     const auxiliary = auxiliaryModelFor(m.id);

@@ -70,7 +70,7 @@ npm install
 lands in the deployment repository and its lockfile rather than in the command
 that bootstraps it.
 
-`--model-provider` takes `anthropic`, `openai`, or `openrouter` and defaults to
+`--model-provider` takes `anthropic`, `openai`, `openrouter`, or `xai` and defaults to
 `anthropic`. It writes `modelProvider` into the scaffolded config, which is what
 promotes that provider's key from an optional fallback to a required secret.
 
@@ -175,7 +175,7 @@ mint limits, the boot refusals, and what anonymous visitors are denied.
 
 Whichever sign-in route the deployment takes, the base model needs a key in the
 same pass. `modelProvider` decides which one `qm setup` asks for —
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` — and the wizard
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY` — and the wizard
 prints where to mint it. The operator owns the billing relationship, so they
 create the key; you only place it. It is a required secret, so `qm doctor` calls
 the provider to prove the key is accepted and `qm up` refuses a deployment that

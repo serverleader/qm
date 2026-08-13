@@ -1,7 +1,7 @@
 import { getModel } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-const KNOWN_PROVIDERS = ["anthropic", "openai", "openrouter"] as const;
+const KNOWN_PROVIDERS = ["anthropic", "openai", "openrouter", "xai"] as const;
 
 const CLONE_TEMPLATES: Readonly<Record<string, { template: string; name: string }>> = {
   "claude-fable-5": { template: "claude-opus-4-8", name: "Claude Fable 5" },
@@ -10,6 +10,8 @@ const CLONE_TEMPLATES: Readonly<Record<string, { template: string; name: string 
   "gpt-5.6-sol": { template: "gpt-5.5", name: "GPT-5.6 Sol" },
   "gpt-5.6-terra": { template: "gpt-5.5", name: "GPT-5.6 Terra" },
   "gpt-5.6-luna": { template: "gpt-5.5", name: "GPT-5.6 Luna" },
+  "grok-4.6": { template: "grok-4.5", name: "Grok 4.6" },
+  "grok-4.5": { template: "grok-4.5", name: "Grok 4.5" },
 };
 
 type PiModel = Model<Api>;
@@ -38,7 +40,25 @@ export function getBaseModel(id: string, fallback?: { name: string; provider: st
       return model;
     }
   }
+  if (fallback?.provider === "xai" || id.startsWith("grok-")) {
+    return xaiFallbackModel(id, fallback?.name ?? clone?.name ?? id);
+  }
   throw new Error(`Unsupported model: ${id}`);
+}
+
+function xaiFallbackModel(id: string, name: string): PiModel {
+  return {
+    id,
+    name,
+    api: "openai-completions",
+    provider: "xai",
+    baseUrl: "https://api.x.ai/v1",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 2, output: 6, cacheRead: 0.3, cacheWrite: 0 },
+    contextWindow: 500_000,
+    maxTokens: 128_000,
+  } as PiModel;
 }
 
 function cloneModel(model: PiModel, id: string, name: string): PiModel {

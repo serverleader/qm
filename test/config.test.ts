@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { baseModelProviders, boolEnv, loadConfig, numEnv, CONFIG_DEFAULTS } from "../src/config.ts";
+import { baseModelProviders, boolEnv, loadConfig, numEnv, providerKeysPresent, CONFIG_DEFAULTS } from "../src/config.ts";
 
 const productionEnv = {
   NODE_ENV: "production",
@@ -373,6 +373,12 @@ test("maxClaims defaults from CONFIG_DEFAULTS and MAX_CLAIMS overrides", () => {
 test("MODEL_PROVIDER declares the vendor that bills the base model", () => {
   assert.equal(loadConfig({}).modelProvider, undefined);
   assert.equal(loadConfig({ MODEL_PROVIDER: " openrouter ", OPENROUTER_API_KEY: "k" }).modelProvider, "openrouter");
+  assert.equal(loadConfig({ MODEL_PROVIDER: " xai ", XAI_API_KEY: "k" }).modelProvider, "xai");
+  assert.equal(
+    loadConfig({ MODEL_PROVIDER: "xai" }).modelProvider,
+    "xai",
+    "SuperGrok OAuth is completed in Admin, so boot does not require XAI_API_KEY",
+  );
   assert.throws(() => loadConfig({ MODEL_PROVIDER: "bedrock" }), /MODEL_PROVIDER.*not recognized/);
 });
 
@@ -390,17 +396,29 @@ test("MODEL_PROVIDER is refused when the harness can never run that vendor's mod
     /cannot serve a base model on HARNESS=opencode/,
     "opencode has no OpenRouter route",
   );
+  assert.throws(
+    () => loadConfig({ MODEL_PROVIDER: "xai", HARNESS: "codex", XAI_API_KEY: "k", OPENAI_API_KEY: "k" }),
+    /cannot serve a base model on HARNESS=codex/,
+  );
   assert.equal(
     loadConfig({ MODEL_PROVIDER: "openai", HARNESS: "codex", OPENAI_API_KEY: "k" }).modelProvider,
     "openai",
     "the one combination Codex can bill is accepted",
+  );
+  assert.equal(
+    loadConfig({ MODEL_PROVIDER: "xai", HARNESS: "pi", XAI_API_KEY: "k" }).modelProvider,
+    "xai",
+  );
+  assert.equal(
+    loadConfig({ MODEL_PROVIDER: "xai", HARNESS: "opencode", XAI_API_KEY: "k" }).modelProvider,
+    "xai",
   );
 });
 
 test("baseModelProviders constrains the base model only when a provider is declared", () => {
   assert.deepEqual(
     baseModelProviders(loadConfig({ MODEL_PROVIDER: "openrouter", OPENROUTER_API_KEY: "k", ANTHROPIC_API_KEY: "k" })),
-    { anthropic: false, openai: false, openrouter: true },
+    { anthropic: false, openai: false, openrouter: true, xai: false },
     "the declaration outranks a stray key from another vendor",
   );
   assert.equal(
@@ -408,4 +426,20 @@ test("baseModelProviders constrains the base model only when a provider is decla
     undefined,
     "with no declaration the shipped default stands, so upgrading never moves a deployment's model or its billing",
   );
+  assert.deepEqual(
+    baseModelProviders(loadConfig({ MODEL_PROVIDER: "xai", XAI_API_KEY: "k" })),
+    { anthropic: false, openai: false, openrouter: false, xai: true },
+  );
+});
+
+test("XAI_API_KEY and XAI_BASE_URL load as the xAI provider", () => {
+  const config = loadConfig({ XAI_API_KEY: "xai-test-key", XAI_BASE_URL: "https://api.x.ai/v1" });
+  assert.equal(config.xaiApiKey, "xai-test-key");
+  assert.equal(config.providerBaseUrls.xai, "https://api.x.ai/v1");
+  assert.deepEqual(providerKeysPresent(config), {
+    anthropic: false,
+    openai: false,
+    openrouter: false,
+    xai: true,
+  });
 });

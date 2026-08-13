@@ -1,6 +1,7 @@
 import { isModelProvider, type ModelProvider } from "../../../model/pi-models.ts";
 import { providerBaseUrl } from "../../../model/provider-endpoints.ts";
 import { selectableModelCatalog } from "../../../model/model-catalog.ts";
+import { pollXaiDeviceLogin, startXaiDeviceLogin } from "../../../model/xai-oauth.ts";
 import { sendJson } from "../../http.ts";
 import type { ApiCtx } from "../route.ts";
 import { audit, authorizeAdmin, orgScope } from "../shared.ts";
@@ -22,6 +23,11 @@ const VALIDATION_REQUESTS: Record<
   openrouter: {
     baseUrl: "https://openrouter.ai/api/v1",
     path: "/key",
+    headers: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
+  },
+  xai: {
+    baseUrl: "https://api.x.ai/v1",
+    path: "/models",
     headers: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
   },
 };
@@ -86,6 +92,63 @@ export async function putModelProvider(ctx: ApiCtx): Promise<void> {
   });
   const status = (await ctx.deps.modelCredentials.statuses()).find((item) => item.provider === provider);
   return sendJson(ctx.res, 200, { ok: true, status });
+}
+
+export async function startXaiOAuth(ctx: ApiCtx): Promise<void> {
+  const authorized = await actor(ctx);
+  if (!authorized) return;
+  if (!ctx.deps.modelCredentials) return sendJson(ctx.res, 404, { error: "not_found" });
+  if (ctx.params.provider !== "xai") {
+    return sendJson(ctx.res, 404, { error: "not_found", message: "SuperGrok sign-in is only available for xAI" });
+  }
+  try {
+    const started = await startXaiDeviceLogin(ctx.deps.modelCredentialFetch ?? fetch);
+    audit(ctx.deps, {
+      principalId: authorized.id,
+      action: "model-providers.oauth.start",
+      resource: "xai",
+      scopeLabel: orgScope(ctx.deps),
+    });
+    return sendJson(ctx.res, 200, started);
+  } catch (error) {
+    return sendJson(ctx.res, 502, {
+      error: "oauth_start_failed",
+      message: error instanceof Error ? error.message : "Could not start SuperGrok sign-in",
+    });
+  }
+}
+
+export async function pollXaiOAuth(ctx: ApiCtx): Promise<void> {
+  const authorized = await actor(ctx);
+  if (!authorized) return;
+  if (!ctx.deps.modelCredentials) return sendJson(ctx.res, 404, { error: "not_found" });
+  if (ctx.params.provider !== "xai") {
+    return sendJson(ctx.res, 404, { error: "not_found", message: "SuperGrok sign-in is only available for xAI" });
+  }
+  const sessionId = (ctx.body as { sessionId?: unknown }).sessionId;
+  if (typeof sessionId !== "string" || !sessionId.trim()) {
+    return sendJson(ctx.res, 400, { error: "bad_request", message: "sessionId is required" });
+  }
+  try {
+    const result = await pollXaiDeviceLogin(sessionId.trim(), ctx.deps.modelCredentialFetch ?? fetch);
+    if (result.status === "approved") {
+      await ctx.deps.modelCredentials.setOAuth("xai", result.credentials, authorized.id);
+      audit(ctx.deps, {
+        principalId: authorized.id,
+        action: "model-providers.oauth.complete",
+        resource: "xai",
+        scopeLabel: orgScope(ctx.deps),
+      });
+      const status = (await ctx.deps.modelCredentials.statuses()).find((item) => item.provider === "xai");
+      return sendJson(ctx.res, 200, { status: "approved", provider: status });
+    }
+    return sendJson(ctx.res, 200, { status: result.status });
+  } catch (error) {
+    return sendJson(ctx.res, 502, {
+      error: "oauth_poll_failed",
+      message: error instanceof Error ? error.message : "Could not finish SuperGrok sign-in",
+    });
+  }
 }
 
 export async function deleteModelProvider(ctx: ApiCtx): Promise<void> {

@@ -33,6 +33,7 @@ export interface OpenCodeHarnessOptions {
   defaultModelId?: string;
   apiKey?: string;
   openaiApiKey?: string;
+  xaiApiKey?: string;
   scratchExec?: boolean;
   ownerAuthExec?: boolean;
   reachExec?: boolean;
@@ -59,6 +60,7 @@ export function openCodeHarnessConfigOptions(config: Config): OpenCodeHarnessOpt
     ...(config.modelId ? { defaultModelId: config.modelId } : {}),
     ...(config.anthropicApiKey ? { apiKey: config.anthropicApiKey } : {}),
     ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
+    ...(config.xaiApiKey ? { xaiApiKey: config.xaiApiKey } : {}),
     ...coreToolOptions(config),
     turnWallClockMs: config.turnWallClockMs,
   };
@@ -678,10 +680,11 @@ export function createOpenCodeHarness(opts: OpenCodeHarnessOptions = {}): Harnes
           lsp: false,
           formatter: false,
           instructions: [],
-          enabled_providers: ["anthropic", "openai", ...custom.map(({ spec }) => spec.id)],
+          enabled_providers: ["anthropic", "openai", "xai", ...custom.map(({ spec }) => spec.id)],
           provider: {
             anthropic: { options: { apiKey: opts.apiKey ?? "" } },
             openai: { options: { apiKey: opts.openaiApiKey ?? "" } },
+            xai: { options: { apiKey: opts.xaiApiKey ?? "" } },
             ...customProviderConfig,
           },
           tools: {

@@ -50,6 +50,8 @@ import {
   contextTokenBudgetForModel,
 } from "../model/pi-models.ts";
 import { customModelsJson, customProvidersVersion } from "../model/custom-providers.ts";
+import { applyXaiSubscriptionRouting } from "../model/xai-oauth.ts";
+import type { XaiAuthMode } from "../model/model-credential-store.ts";
 import {
   defineHarness,
   type Harness,
@@ -87,7 +89,9 @@ export interface PiHarnessOptions {
   apiKey?: string;
   openaiApiKey?: string;
   openrouterApiKey?: string;
+  xaiApiKey?: string;
   resolveProviderKeys?: () => Promise<ProviderKeys>;
+  resolveXaiAuthMode?: () => Promise<XaiAuthMode>;
   tempDirPrefix?: string;
   captureRequests?: boolean;
   systemCacheSplit?: boolean;
@@ -115,6 +119,7 @@ export function piHarnessConfigOptions(config: Config): PiHarnessOptions {
     ...(config.anthropicApiKey ? { apiKey: config.anthropicApiKey } : {}),
     ...(config.openaiApiKey ? { openaiApiKey: config.openaiApiKey } : {}),
     ...(config.openrouterApiKey ? { openrouterApiKey: config.openrouterApiKey } : {}),
+    ...(config.xaiApiKey ? { xaiApiKey: config.xaiApiKey } : {}),
     captureRequests: config.piCaptureRequests,
     systemCacheSplit: config.piSystemCacheSplit,
     ...coreToolOptions(config),
@@ -980,6 +985,7 @@ export interface ProviderKeys {
   anthropic?: string;
   openai?: string;
   openrouter?: string;
+  xai?: string;
   /** Admin-registered custom providers, keyed by provider slug. */
   [provider: string]: string | undefined;
 }
@@ -1231,11 +1237,17 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
         ...(opts?.apiKey ? { anthropic: opts.apiKey } : {}),
         ...(opts?.openaiApiKey ? { openai: opts.openaiApiKey } : {}),
         ...(opts?.openrouterApiKey ? { openrouter: opts.openrouterApiKey } : {}),
+        ...(opts?.xaiApiKey ? { xai: opts.xaiApiKey } : {}),
       };
   const resolveProviderKeys = async (): Promise<ProviderKeys> => ({
     ...configuredProviderKeys,
     ...(await opts?.resolveProviderKeys?.()),
   });
+  const modelForTurn = async (id: string): Promise<Model<Api>> => {
+    const model = getRequiredModel(id);
+    if (String(model.provider) !== "xai") return model;
+    return (await opts?.resolveXaiAuthMode?.()) === "oauth" ? applyXaiSubscriptionRouting(model) : model;
+  };
   const keyForModel = (keys: ProviderKeys, model: Model<Api>): string | undefined => keys[String(model.provider)];
   const captureRequests = opts?.captureRequests ?? true;
   const systemCacheSplit = opts?.systemCacheSplit ?? false;
@@ -1297,7 +1309,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
     const seedPlan = planColdStartSeed(seedSource, !!priorTurns?.length);
     const composedPrompt = systemPrompt + (seedPlan === "preamble" ? replayPreamble(history) : "");
 
-    const model = getRequiredModel(resolveModelId(turnScope));
+    const model = await modelForTurn(resolveModelId(turnScope));
     const modelRuntime = await buildModelRuntime(await resolveProviderKeys());
     const ref: ToolContextRef = { current: null };
     const { resourceLoader, cwd, agentDir } = await createIsolatedResources(tempDirPrefix, composedPrompt);
@@ -1495,8 +1507,8 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
           const currentFast = Boolean(current?.headers?.["anthropic-beta"]?.includes(FAST_MODE_BETA));
           if (current?.id !== desiredModelId || currentFast !== wantFast) {
             try {
-              const base = resolveModel(desiredModelId);
-              if (base) await entry.agentSession.setModel(wantFast ? withFastModeHeaders(base) : base);
+              const base = await modelForTurn(desiredModelId);
+              await entry.agentSession.setModel(wantFast ? withFastModeHeaders(base) : base);
             } catch (e) {
               swallow("pi: model switch", e);
             }
@@ -1927,7 +1939,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
       async shouldRespond(detect: HarnessDetectInput): Promise<HarnessDetectResult> {
         try {
           const modelId = detectModelId();
-          const model = getRequiredModel(modelId);
+          const model = await modelForTurn(modelId);
           const providerKeys = await resolveProviderKeys();
           if (!keyForModel(providerKeys, model)) return { respond: true };
           const detectSystemPrompt = buildDetectionPrompt(detect.reactionGuidance);
@@ -1953,7 +1965,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
             inputTokens: countTokens(CONTEXT_COMPACTION_PROMPT) + countTokens(transcript),
             entryCount: input.history.length,
           });
-          const model = getRequiredModel(compactModelId);
+          const model = await modelForTurn(compactModelId);
           const providerKeys = await resolveProviderKeys();
           if (!keyForModel(providerKeys, model)) return deterministicCompactSummary(input.history);
           const out = await oneShot("pi-compact", model, providerKeys, CONTEXT_COMPACTION_PROMPT, transcript);
@@ -1969,14 +1981,14 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
       },
 
       async oneShot(systemPrompt: string, prompt: string): Promise<string | undefined> {
-        const model = getRequiredModel(resolveModelId());
+        const model = await modelForTurn(resolveModelId());
         const providerKeys = await resolveProviderKeys();
         if (!keyForModel(providerKeys, model)) return undefined;
         return oneShot("pi-oneshot", model, providerKeys, systemPrompt, prompt);
       },
 
       async judge(systemPrompt: string, prompt: string): Promise<string | undefined> {
-        const model = getRequiredModel(judgeModelId());
+        const model = await modelForTurn(judgeModelId());
         const providerKeys = await resolveProviderKeys();
         if (!keyForModel(providerKeys, model)) return undefined;
         return oneShot("pi-judge", model, providerKeys, systemPrompt, prompt);
@@ -1985,7 +1997,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
       async screenSecurity({ payload, signal, recordModelCall, recordLlmRequest }) {
         try {
           const modelId = detectModelId();
-          const model = getRequiredModel(modelId);
+          const model = await modelForTurn(modelId);
           const providerKeys = await resolveProviderKeys();
           if (!keyForModel(providerKeys, model)) return undefined;
           recordModelCall({
@@ -2032,7 +2044,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
 
       async generateTitle(transcript: string): Promise<string | undefined> {
         if (!transcript.trim()) return undefined;
-        const model = getRequiredModel(titleModelId());
+        const model = await modelForTurn(titleModelId());
         const providerKeys = await resolveProviderKeys();
         if (!keyForModel(providerKeys, model)) {
           throw new Error(`Missing ${model.provider} credential for title model ${model.id}`);
@@ -2043,7 +2055,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
 
       async summarizeApproval(command: string, reason: string, purpose?: string): Promise<string | undefined> {
         if (!command.trim()) return undefined;
-        const model = getRequiredModel(titleModelId());
+        const model = await modelForTurn(titleModelId());
         const providerKeys = await resolveProviderKeys();
         if (!keyForModel(providerKeys, model)) return undefined;
         const prompt = [

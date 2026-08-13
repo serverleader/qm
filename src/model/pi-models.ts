@@ -11,7 +11,8 @@ export const THINKING_LEVELS = ["auto", "low", "medium", "high", "xhigh", "max",
 export const HARNESS_IDS = ["pi", "opencode", "codex", "claude", "mock"] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
-export const MODEL_PROVIDERS = ["anthropic", "openai", "openrouter"] as const;
+const PI_AI_PROVIDERS = ["anthropic", "openai", "openrouter", "xai"] as const;
+export const MODEL_PROVIDERS = ["anthropic", "openai", "openrouter", "xai"] as const;
 export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
 export function isModelProvider(value: unknown): value is ModelProvider {
@@ -89,6 +90,23 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     clone: { ...GPT_56_CLONE, input: 1, output: 6 },
   },
   { id: "openrouter/auto", name: "OpenRouter Auto", fastMode: false, webui: true, base: true },
+  {
+    id: "grok-4.6",
+    name: "Grok 4.6",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 2, output: 6, contextWindow: 500_000, maxTokens: 128_000 },
+  },
+  {
+    id: "grok-4.5",
+    name: "Grok 4.5",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 2, output: 6, contextWindow: 500_000, maxTokens: 128_000 },
+  },
+  { id: "grok-4.3", name: "Grok 4.3", fastMode: false, webui: true, base: true, auxiliary: true },
   { id: "claude-opus-4-7", name: "Claude Opus 4.7", fastMode: true, webui: false, base: false },
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", fastMode: true, webui: false, base: false },
 ];
@@ -106,7 +124,7 @@ export const SELECTABLE_BASE_MODELS: ReadonlyArray<{ id: string; name: string }>
 ).map((m) => ({ id: m.id, name: m.name }));
 
 function builtinModel(id: string): PiModel | undefined {
-  for (const provider of MODEL_PROVIDERS) {
+  for (const provider of PI_AI_PROVIDERS) {
     const m = getModel(provider, id);
     if (!m) continue;
     // Endpoint overrides apply here, at the single choke point every
@@ -202,6 +220,7 @@ export interface ModelProviderAvailability {
   anthropic: boolean;
   openai: boolean;
   openrouter: boolean;
+  xai: boolean;
 }
 
 export function modelServiceable(id: string, providers: ModelProviderAvailability): boolean {
@@ -211,6 +230,7 @@ export function modelServiceable(id: string, providers: ModelProviderAvailabilit
   if (provider === "openai") return providers.openai;
   if (provider === "anthropic") return providers.anthropic;
   if (provider === "openrouter") return providers.openrouter;
+  if (provider === "xai") return providers.xai;
   return true;
 }
 
@@ -218,7 +238,12 @@ export function serviceableModelIds(ids: readonly string[], providers: ModelProv
   return ids.filter((id) => modelServiceable(id, providers));
 }
 
-export const ALL_PROVIDERS_AVAILABLE: ModelProviderAvailability = { anthropic: true, openai: true, openrouter: true };
+export const ALL_PROVIDERS_AVAILABLE: ModelProviderAvailability = {
+  anthropic: true,
+  openai: true,
+  openrouter: true,
+  xai: true,
+};
 
 export function modelProviderAvailabilityFor(
   harness: string,
@@ -232,7 +257,7 @@ export function modelProviderAvailabilityFor(
 }
 
 export function onlyProvider(provider: ModelProvider): ModelProviderAvailability {
-  return { anthropic: false, openai: false, openrouter: false, [provider]: true };
+  return { anthropic: false, openai: false, openrouter: false, xai: false, [provider]: true };
 }
 
 export function defaultModelForProvider(harness: string, provider: ModelProvider): string | undefined {

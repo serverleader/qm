@@ -54,6 +54,11 @@ test("a declared base model provider is enforced at boot, not just at deploy tim
     ]);
   }
   assert.deepEqual(validateCoreSecretEnv({} as NodeJS.ProcessEnv), [], "no provider declared, nothing required");
+  assert.deepEqual(
+    validateCoreSecretEnv({ MODEL_PROVIDER: "xai" } as NodeJS.ProcessEnv),
+    [],
+    "xAI SuperGrok OAuth is configured in Admin, so boot does not require XAI_API_KEY",
+  );
 });
 
 test("an OpenAI base model on the Codex harness reports its one missing key once", () => {

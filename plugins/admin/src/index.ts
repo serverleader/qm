@@ -266,7 +266,7 @@ const WRITES = new Map<string, string[]>([
   ["skill-packs", ["POST", "PATCH", "DELETE"]],
   ["users", ["PUT", "POST"]],
   ["slack-installation", ["PUT", "DELETE"]],
-  ["model-providers", ["PUT", "DELETE"]],
+  ["model-providers", ["PUT", "DELETE", "POST"]],
   ["custom-providers", ["PUT", "DELETE"]],
 ]);
 

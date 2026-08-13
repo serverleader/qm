@@ -40,6 +40,8 @@ test("temporary onboarding covers model credentials, Slack, and OAuth setup", ()
   assert.match(html, /OpenRouter/);
   assert.match(html, /api\("GET", "\/api\/model-providers"\)/);
   assert.match(html, /api\("PUT", "\/api\/model-providers\/" \+ encodeURIComponent\(provider\)/);
+  assert.match(html, /Sign in with SuperGrok/);
+  assert.match(html, /api\("POST", "\/api\/model-providers\/xai\/oauth\/start"/);
   assert.match(html, /models\.data\.models/);
   assert.doesNotMatch(html, /const ONBOARDING_MODELS/);
   assert.match(html, /viewLoadedAt\.onboarding = Date\.now\(\)/);

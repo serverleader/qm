@@ -32,7 +32,13 @@ import {
   listSlackMirrorMessages,
 } from "./admin/slack-mirror.ts";
 import { deleteSlackInstallation, getSlackInstallation, putSlackInstallation } from "./admin/slack-installation.ts";
-import { deleteModelProvider, getModelProviders, putModelProvider } from "./admin/model-providers.ts";
+import {
+  deleteModelProvider,
+  getModelProviders,
+  pollXaiOAuth,
+  putModelProvider,
+  startXaiOAuth,
+} from "./admin/model-providers.ts";
 import { deleteCustomProvider, getCustomProviders, putCustomProvider } from "./admin/custom-providers.ts";
 
 const timed =
@@ -58,6 +64,8 @@ const routes: ReadonlyArray<Route<ApiCtx>> = [
   { method: "DELETE", path: "/v1/admin/slack-installation", auth: "either", handle: deleteSlackInstallation },
   { method: "GET", path: "/v1/admin/model-providers", auth: "either", handle: getModelProviders },
   { method: "PUT", path: "/v1/admin/model-providers/:provider", auth: "either", handle: putModelProvider },
+  { method: "POST", path: "/v1/admin/model-providers/:provider/oauth/start", auth: "either", handle: startXaiOAuth },
+  { method: "POST", path: "/v1/admin/model-providers/:provider/oauth/poll", auth: "either", handle: pollXaiOAuth },
   { method: "DELETE", path: "/v1/admin/model-providers/:provider", auth: "either", handle: deleteModelProvider },
   { method: "GET", path: "/v1/admin/custom-providers", auth: "either", handle: getCustomProviders },
   { method: "PUT", path: "/v1/admin/custom-providers/:provider", auth: "either", handle: putCustomProvider },
