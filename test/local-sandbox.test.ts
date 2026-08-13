@@ -255,6 +255,31 @@ test("each container runs on its own network; destroy removes it", async () => {
   await sb.teardown(hb);
 });
 
+test("containerized core reaches the exec daemon by container name on a peer network", async () => {
+  const fake = installFakeDocker(daemonPort);
+  const seen: string[] = [];
+  const sb = createLocalSandbox(createLocalWorkspaceStore(mkdtempSync(join(tmpdir(), "local-ws-"))), {
+    dockerExec: fake.dockerExec,
+    homeDir: guestHome,
+    repoRoot: tmp,
+    peerNetwork: "qm-shadowagent",
+    fetchImpl: async (url, init) => {
+      seen.push(String(url));
+      const parsed = new URL(String(url));
+      return fetch(`http://127.0.0.1:${daemonPort}${parsed.pathname}${parsed.search}`, init);
+    },
+  });
+  const h = await sb.provision(rw(scopeId("personal", "U23")));
+  assert.ok(
+    seen.some((u) => u.startsWith(`http://${h.id}:8080/`)),
+    `expected container-dns health checks, got ${JSON.stringify(seen.slice(0, 3))}`,
+  );
+  assert.equal(seen.some((u) => u.includes("127.0.0.1")), false);
+  assert.equal(fake.networkConnections.has(`qm-shadowagent:${h.id}`), true);
+  const r = await sb.run(h, "echo hello");
+  assert.equal(r.stdout.trim(), "hello");
+});
+
 test("concurrent teardown and provision for one scope serialize (no stop of a fresh user)", async () => {
   const fake = installFakeDocker(daemonPort);
   const sb = makeSandbox(fake);

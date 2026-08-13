@@ -13,6 +13,7 @@ export interface FakeDocker {
   containers: Map<string, FakeContainer>;
   volumes: Set<string>;
   networks: Set<string>;
+  networkConnections: Set<string>;
   runCount: number;
   daemonDown: boolean;
   imageMissing: boolean;
@@ -28,6 +29,7 @@ export function installFakeDocker(daemonPort: number): FakeDocker {
     containers,
     volumes,
     networks,
+    networkConnections: new Set<string>(),
     runCount: 0,
     daemonDown: false,
     imageMissing: false,
@@ -78,6 +80,17 @@ export function installFakeDocker(daemonPort: number): FakeDocker {
           return ok(name);
         }
         if (sub === "rm") return networks.delete(name) ? ok(name) : fail(`Error: No such network: ${name}`);
+        if (sub === "connect") {
+          const container = rest[2];
+          if (!name || !container) return fail("network connect requires a network and container");
+          const key = `${name}:${container}`;
+          if (self.networkConnections.has(key)) {
+            return fail(`endpoint with name ${container} already exists in network ${name}`);
+          }
+          networks.add(name);
+          self.networkConnections.add(key);
+          return ok();
+        }
         return fail(`unknown network subcommand ${sub}`);
       }
       case "volume": {

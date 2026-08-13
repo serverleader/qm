@@ -48,6 +48,12 @@ export interface LocalSandboxOptions {
   repoRoot?: string;
   dockerExec?: DockerExec;
   fetchImpl?: typeof fetch;
+  /**
+   * Docker network shared with a containerized core. When set (or auto-detected
+   * by inspecting this process's container), the exec daemon is reached at
+   * http://<sandbox-container>:8080 instead of a host-published 127.0.0.1 port.
+   */
+  peerNetwork?: string;
   onError?: (e: { category: string; code: string; message: string; scopeLabel?: string }) => void;
 }
 
@@ -101,9 +107,44 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
   const scopeByContainer = new Map<string, string>();
   const scratchByKey = new Map<string, string>();
   const activeByContainer = new Map<string, number>();
+  const attachedToPeer = new Set<string>();
 
   let preflightDone: Promise<string> | undefined;
   let staleWarned = false;
+  let discoveredPeer: Promise<string | null> | undefined;
+
+  async function peerNetwork(): Promise<string | null> {
+    if (opts.peerNetwork !== undefined) return opts.peerNetwork.trim() || null;
+    discoveredPeer ??= (async () => {
+      const id = process.env.HOSTNAME?.trim();
+      if (!id) return null;
+      const r = await dexec([
+        "inspect",
+        "-f",
+        "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}",
+        id,
+      ]);
+      if (r.code !== 0) return null;
+      const nets = r.stdout
+        .split("\n")
+        .map((n) => n.trim())
+        .filter((n) => n && n !== "bridge" && n !== "host" && n !== "none" && !n.startsWith("qm-net-"));
+      return nets[0] ?? null;
+    })();
+    return discoveredPeer;
+  }
+
+  async function attachToPeerNetwork(name: string): Promise<string | null> {
+    const net = await peerNetwork();
+    if (!net) return null;
+    if (attachedToPeer.has(name)) return net;
+    const r = await dexec(["network", "connect", net, name]);
+    if (r.code !== 0 && !/already (exists|connected)/i.test(r.stderr)) {
+      throw new Error(`docker network connect ${net} ${name} failed: ${r.stderr.trim()}`);
+    }
+    attachedToPeer.add(name);
+    return net;
+  }
 
   async function preflight(): Promise<string> {
     preflightDone ??= (async () => {
@@ -165,9 +206,10 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
     timeoutMs?: number,
     signal?: AbortSignal,
   ): Promise<{ status: number; text: string }> {
-    const port = await resolvePort(name);
+    const peer = await attachToPeerNetwork(name);
+    const base = peer ? `http://${name}:${AGENT_PORT}` : `http://127.0.0.1:${await resolvePort(name)}`;
     const signals = [AbortSignal.timeout(timeoutMs ?? 30_000), ...(signal ? [signal] : [])];
-    const res = await fetchImpl(`http://127.0.0.1:${port}${path}`, {
+    const res = await fetchImpl(`${base}${path}`, {
       method: body === undefined ? "GET" : "POST",
       ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
       signal: AbortSignal.any(signals),
@@ -277,7 +319,10 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
         activeByContainer.set(name, (activeByContainer.get(name) ?? 0) + 1);
         return { name, coldStart: false };
       }
-      if (state) await dexec(["rm", "-f", name]);
+      if (state) {
+        attachedToPeer.delete(name);
+        await dexec(["rm", "-f", name]);
+      }
       const volume = localVolumeName(scope);
       const hadVolume = (await dexec(["volume", "inspect", volume])).code === 0;
       if (!hadVolume) {
@@ -454,6 +499,7 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
 
         if (handle.scratch) {
           for (const [k, name] of scratchByKey) if (name === handle.id) scratchByKey.delete(k);
+          attachedToPeer.delete(handle.id);
           if (tdOpts?.destroy) await dexec(["rm", "-f", handle.id]);
           else await dexec(["rm", "-f", handle.id]).catch(swallowAs("local-sandbox: scratch rm", undefined));
           await dexec(["network", "rm", localNetworkName(handle.id)]).catch(
@@ -466,6 +512,7 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
         if (tdOpts?.keepWarm) return;
 
         if (tdOpts?.destroy) {
+          attachedToPeer.delete(handle.id);
           await dexec(["rm", "-f", handle.id]).catch(swallowAs("local-sandbox: destroy rm", undefined));
           await dexec(["network", "rm", localNetworkName(handle.id)]).catch(
             swallowAs("local-sandbox: destroy network rm", undefined),
