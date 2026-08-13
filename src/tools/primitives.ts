@@ -144,6 +144,12 @@ interface ReachedProvenance {
 }
 
 export interface ToolContext extends SurfaceToolDeps {
+  credentialExecServices?: readonly { service: string; binary: string }[];
+  credentialExec?(
+    service: string,
+    args: string[],
+    opts?: { timeoutSeconds?: number; signal?: AbortSignal },
+  ): Promise<ExecResult>;
   execute(
     command: string,
     opts?: {
@@ -305,7 +311,8 @@ interface SurfaceFileResult {
 }
 
 type SurfaceStandingOrderResult =
-  { ok: true; orders: string; bots?: Record<string, BotPolicy> } | { ok: false; message: string };
+  | { ok: true; orders: string; bots?: Record<string, BotPolicy>; ambientEnabled?: boolean }
+  | { ok: false; message: string };
 
 export interface SurfaceToolDeps {
   post(text: string, opts?: SurfacePostOpts, files?: readonly string[]): Promise<SurfacePostResult>;
@@ -319,7 +326,11 @@ export interface SurfaceToolDeps {
   readMembers(): Promise<SurfaceMembersResult>;
   readFile(ref: string): Promise<SurfaceFileResult>;
   getStandingOrder(): Promise<SurfaceStandingOrderResult>;
-  setStandingOrder(orders: string, bots?: Record<string, BotPolicy>): Promise<SurfaceStandingOrderResult>;
+  setStandingOrder(
+    orders: string,
+    bots?: Record<string, BotPolicy>,
+    ambientEnabled?: boolean | null,
+  ): Promise<SurfaceStandingOrderResult>;
   staySilent(reason: string): Promise<{ ok: true; message: string }>;
 }
 
@@ -336,10 +347,13 @@ export const CONTROL_UNAVAILABLE: ControlUnavailable = {
 
 export interface ToolContextDeps {
   sandbox: Sandbox;
+  credentialExecServices?: readonly { service: string; binary: string }[];
+  credentialExec?: ToolContext["credentialExec"];
   provision: () => Promise<SandboxHandle>;
   provisionScratch?: () => Promise<SandboxHandle>;
   provisionOwnerAuth?: () => Promise<SandboxHandle>;
   ownerAuthCommand?: (command: string) => string;
+  scopedCommand?: (command: string) => string;
   ensureSkillTree?: (skillDir: string) => Promise<void>;
   reach?: {
     resolveChannel(query: string): Promise<ReachResolution>;
@@ -443,6 +457,8 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
   }
 
   return {
+    ...(deps.credentialExecServices ? { credentialExecServices: deps.credentialExecServices } : {}),
+    ...(deps.credentialExec ? { credentialExec: deps.credentialExec } : {}),
     async execute(
       command: string,
       execOpts?: {
@@ -519,7 +535,9 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
           });
         }
         return timed("exec", async () => {
-          const sandboxCommand = ownerAuth && deps.ownerAuthCommand ? deps.ownerAuthCommand(command) : command;
+          const sandboxCommand = ownerAuth
+            ? (deps.ownerAuthCommand?.(command) ?? command)
+            : (deps.scopedCommand?.(command) ?? command);
           const r = await deps.sandbox.run(handle, sandboxCommand, opts);
           return reached ? { ...r, reached } : r;
         });
@@ -803,7 +821,12 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
         for (const skillDir of skillTreeDirsInCommand(command)) await deps.ensureSkillTree(skillDir);
       }
       return once(
-        () => deps.backgroundBroker!.start(handle, command, opts?.ttlSeconds ? opts.ttlSeconds * 1000 : undefined),
+        () =>
+          deps.backgroundBroker!.start(
+            handle,
+            deps.scopedCommand?.(command) ?? command,
+            opts?.ttlSeconds ? opts.ttlSeconds * 1000 : undefined,
+          ),
         () => true,
       );
     },
@@ -943,7 +966,8 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
     readMembers: () => surfaceOp((s) => s.readMembers()),
     readFile: (ref) => surfaceOp((s) => s.readFile(ref)),
     getStandingOrder: () => surfaceOp((s) => s.getStandingOrder()),
-    setStandingOrder: (orders, bots) => surfaceOp((s) => s.setStandingOrder(orders, bots)),
+    setStandingOrder: (orders, bots, ambientEnabled) =>
+      surfaceOp((s) => s.setStandingOrder(orders, bots, ambientEnabled)),
     staySilent: (reason) =>
       deps.surface
         ? deps.surface.staySilent(reason)

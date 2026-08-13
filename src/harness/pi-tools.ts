@@ -121,6 +121,44 @@ function capText(t: string): string {
   return t.length > MAX_TOOL_RESULT_CHARS ? `${t.slice(0, MAX_TOOL_RESULT_CHARS)}…[truncated]` : t;
 }
 
+function contentFactLines(content: string): string[] {
+  return content
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[-*]\s+/, "")
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+function passedRememberFields(params: { facts?: unknown; content?: unknown; query?: unknown }): string {
+  const fields = ["facts", "content", "query"].filter((field) => params[field as keyof typeof params] !== undefined);
+  return fields.length ? fields.join(", ") : "none";
+}
+
+function rememberFacts(params: { facts?: unknown; content?: unknown; query?: unknown }): {
+  facts: string[];
+  coercedFrom?: "facts" | "content" | "query";
+} {
+  if (typeof params.facts === "string") {
+    const fact = params.facts.trim();
+    if (fact) return { facts: [fact], coercedFrom: "facts" };
+  }
+  const facts = Array.isArray(params.facts) ? params.facts.map((fact) => String(fact).trim()).filter(Boolean) : [];
+  if (facts.length) return { facts };
+  if (typeof params.content === "string") {
+    const contentFacts = contentFactLines(params.content);
+    if (contentFacts.length) return { facts: contentFacts, coercedFrom: "content" };
+  }
+  if (typeof params.query === "string") {
+    const fact = params.query.trim();
+    if (fact) return { facts: [fact], coercedFrom: "query" };
+  }
+  return { facts: [] };
+}
+
 function fmtStatus(s: { state: "running" } | { state: "exited"; code: number }): string {
   return s.state === "exited" ? `exited ${s.code}` : "running";
 }
@@ -230,6 +268,7 @@ function fmtCronRunLine(entry: CronFireLogEntry): string {
 }
 
 export interface PiToolsOptions {
+  credentialExecServices?: readonly { service: string; binary: string }[];
   scratchExec?: boolean;
   ownerAuthExec?: boolean;
   reachExec?: boolean;
@@ -279,6 +318,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
   const ownerAuthExec = !!opts?.ownerAuthExec;
   const reachExec = !!opts?.reachExec;
   const controlTools = !!opts?.controlTools;
+  const credentialExecServices = opts?.credentialExecServices ?? ref.current?.credentialExecServices ?? [];
   const surfaceTools = !!opts?.surfaceTools;
   const execTimeoutSec = Math.round((opts?.execTimeoutMs ?? CONFIG_DEFAULTS.execTimeoutDefaultSec * 1000) / 1000);
   const execCeilingSec = Math.round((opts?.execTimeoutCeilingMs ?? CONFIG_DEFAULTS.execTimeoutMaxSec * 1000) / 1000);
@@ -892,7 +932,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
         ...(params.query !== undefined ? { query: params.query } : {}),
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
         ...(params.facts !== undefined ? { facts: params.facts } : {}),
-        ...(params.content !== undefined ? { chars: params.content.length } : {}),
+        ...(typeof params.content === "string" ? { chars: params.content.length } : {}),
       });
       const unavailable = () =>
         recordResult(
@@ -937,19 +977,24 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
           );
         }
         case "remember": {
-          const facts = (params.facts ?? []).map((f) => f.trim()).filter(Boolean);
+          const resolved = rememberFacts(params);
+          const { facts } = resolved;
           if (!facts.length)
             return recordResult(
               callId,
               { tool: "memory", action, error: "facts required" },
-              text("[error] memory remember requires `facts` (a non-empty list)."),
+              text(
+                `[error] memory remember requires \`facts\` (a non-empty list). Received: ${passedRememberFields(
+                  params,
+                )} (use facts instead).`,
+              ),
               true,
             );
           const added = await tc.memoryRemember(facts);
           if (added === null) return unavailable();
           return recordResult(
             callId,
-            { tool: "memory", action, added },
+            { tool: "memory", action, added, ...(resolved.coercedFrom ? { coercedFrom: resolved.coercedFrom } : {}) },
             text(
               added
                 ? `Remembered ${added} fact${added === 1 ? "" : "s"}.`
@@ -1209,6 +1254,20 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
                 ...(params.pattern !== undefined ? { pattern: params.pattern } : {}),
                 ...(params.since_cursor !== undefined ? { sinceCursor: params.since_cursor } : {}),
               });
+              if ("completed" in r) {
+                const status = `${r.registryStatus}${r.exitCode !== undefined ? ` (code ${r.exitCode})` : ""}`;
+                const result = r.outputTail
+                  ? `job already ${status} — no watch armed; here is the tail of its output:\n${r.outputTail}`
+                  : `job already ${status} — no watch armed; it produced no output.`;
+                return recordResult(
+                  callId,
+                  { tool: "background", ...r },
+                  {
+                    content: [{ type: "text" as const, text: result }],
+                    details: r,
+                  },
+                );
+              }
               const trigger = params.pattern ? `new output matching /${params.pattern}/` : "new output";
               return recordResult(
                 callId,
@@ -1742,6 +1801,12 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
       action: Type.Union([Type.Literal("read"), Type.Literal("write")]),
       scope: Type.Optional(Type.Union([Type.Literal("channel"), Type.Literal("conversation")])),
       content: Type.Optional(Type.String()),
+      ambientEnabled: Type.Optional(
+        Type.Union([Type.Boolean(), Type.Null()], {
+          description:
+            "Channel scope only. true judges every message for an unprompted reply, false responds only when addressed, and null uses the platform default.",
+        }),
+      ),
       bots: Type.Optional(
         Type.Record(
           Type.String(),
@@ -1796,22 +1861,37 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
           const note = convoExists
             ? "\n\n(conversation-scope guidance also exists — read with scope=conversation)"
             : "";
-          const body = (channel!.orders.trim() ? channel!.orders : "[no channel guidance set]") + ledger + note;
+          let ambientState = "default";
+          if (channel!.ambientEnabled !== undefined) ambientState = channel!.ambientEnabled ? "on" : "off";
+          const ambient = `\n\nAmbient replies: ${ambientState}`;
+          const body =
+            (channel!.orders.trim() ? channel!.orders : "[no channel guidance set]") + ambient + ledger + note;
           return recordResult(callId, { tool: "guidance", scope, ok: true }, text(body));
         }
-        if (typeof params.content !== "string" && params.bots === undefined) {
+        if (typeof params.content !== "string" && params.bots === undefined && params.ambientEnabled === undefined) {
           return recordResult(
             callId,
-            { tool: "guidance", scope, error: "content or bots required" },
-            text("[error] guidance write needs `content` (the full new channel guidance) and/or `bots`."),
+            { tool: "guidance", scope, error: "content, bots, or ambientEnabled required" },
+            text(
+              "[error] guidance write needs `content` (the full new channel guidance), `bots`, and/or `ambientEnabled`.",
+            ),
             true,
           );
         }
         const orders = typeof params.content === "string" ? params.content : channel!.orders;
-        const r = await tc.setStandingOrder(orders, params.bots);
+        const r = await tc.setStandingOrder(orders, params.bots, params.ambientEnabled);
         if (!r.ok)
           return recordResult(callId, { tool: "guidance", scope, ok: false }, text(`[error] ${r.message}`), true);
         return recordResult(callId, { tool: "guidance", scope, ok: true }, text("[channel guidance updated]"));
+      }
+
+      if (params.ambientEnabled !== undefined) {
+        return recordResult(
+          callId,
+          { tool: "guidance", scope, error: "ambientEnabled is channel scope only" },
+          text("[error] `ambientEnabled` applies only to channel scope."),
+          true,
+        );
       }
 
       if (params.action === "read") {
@@ -2394,8 +2474,78 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     },
   });
 
+  const credentialExec = defineTool({
+    name: "credential_exec",
+    label: "Credential exec",
+    description:
+      "Run a configured credential-bearing CLI in a one-shot isolated box. Shell operators and pipelines are not supported; args are passed literally. Available services: " +
+      credentialExecServices.map(({ service, binary }) => `${service} (${binary})`).join(", "),
+    parameters: Type.Object({
+      service: Type.String({ enum: credentialExecServices.map(({ service }) => service) }),
+      args: Type.Array(Type.String()),
+      timeout_seconds: Type.Optional(Type.Integer({ minimum: 1, maximum: execCeilingSec })),
+    }),
+    async execute(callId, params: { service: string; args: string[]; timeout_seconds?: number }) {
+      const tc = ref.current;
+      await recordCall(callId, { tool: "credential_exec", service: params.service, args: params.args });
+      if (!tc?.credentialExec) {
+        return recordResult(
+          callId,
+          { tool: "credential_exec", unavailable: true },
+          text("[error] credential_exec is unavailable on this turn"),
+          true,
+        );
+      }
+      try {
+        const result = await tc.credentialExec(params.service, params.args, {
+          ...(params.timeout_seconds !== undefined ? { timeoutSeconds: params.timeout_seconds } : {}),
+          ...(ref.abortSignal ? { signal: ref.abortSignal } : {}),
+        });
+        const parts = [result.stdout, result.stderr ? `[stderr]\n${result.stderr}` : ""].filter(Boolean).join("\n");
+        return recordResult(
+          callId,
+          { tool: "credential_exec", service: params.service, ...result },
+          text(`${parts}\n[exit ${result.code}${result.timedOut ? " timed-out" : ""}]`),
+          result.code !== 0,
+        );
+      } catch (error) {
+        if (error instanceof NeedsApproval) {
+          ref.pendingApprovals?.push({
+            command: error.command,
+            reason: error.approvalReason,
+            kind: error.kind,
+            matched: error.matched,
+            ...(error.approvalKey ? { approvalKey: error.approvalKey } : {}),
+          });
+          ref.pausedOnApproval = true;
+          return recordResult(
+            callId,
+            { tool: "credential_exec", blocked: "needs_approval", reason: error.approvalReason },
+            { ...text(`[blocked: needs human approval] ${error.approvalReason}`), terminate: true },
+            true,
+          );
+        }
+        if (error instanceof CommandDenied) {
+          return recordResult(
+            callId,
+            { tool: "credential_exec", denied: true, reason: error.message },
+            text(`[denied by policy] ${error.message}`),
+            true,
+          );
+        }
+        return recordResult(
+          callId,
+          { tool: "credential_exec", service: params.service, failed: true },
+          text(`[error] ${errMessage(error)}`),
+          true,
+        );
+      }
+    },
+  });
+
   const tools = [
     execute,
+    ...(credentialExecServices.length ? [credentialExec] : []),
     read,
     write,
     publish,

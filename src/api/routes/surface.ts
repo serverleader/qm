@@ -18,7 +18,7 @@ import { builtInModelCatalog, selectableCatalogForHarness, selectableModelCatalo
 import { errMessage } from "../../util/errors.ts";
 import { renderAgentApis } from "../agent-api-catalog.ts";
 import { mintCapabilityToken, CAPABILITY_TTL_MS } from "../../auth/capability-token.ts";
-import { pipeToResponse, sendJson } from "../http.ts";
+import { contentTypeWithUtf8Charset, pipeToResponse, sendJson } from "../http.ts";
 import { audit, isObj, orgScope } from "./shared.ts";
 import { type ApiCtx, type Route } from "./route.ts";
 import {
@@ -103,18 +103,27 @@ async function spawnAgentConversation(ctx: ApiCtx): Promise<void> {
   });
   if (!out) return sendJson(res, 404, { error: "not_found", message: "cannot start a session in this scope" });
   const session = out.session;
+  const sessionScope = parseScopeId(session.scopeId);
   const turn = await app.turn({
     surface: session.surface ?? "web",
     actor: { externalId: capability.actorId },
     conversation: {
       kind: session.type,
       threadRef: session.threadRef,
+      ...(sessionScope.kind === "channel" || sessionScope.kind === "group" ? { channelRef: sessionScope.ref } : {}),
       ...(session.channelName ? { channelName: session.channelName } : {}),
     },
     text: b.text,
     spawned: true,
     async: true,
   });
+  if (turn.status === "refused") {
+    await app.discardSession(session.id, capability.actorId);
+    return sendJson(res, 409, {
+      error: "seed_turn_refused",
+      message: (turn as { reason?: string }).reason ?? "the first message was refused",
+    });
+  }
   const runId = (turn as { runId?: string }).runId;
   return sendJson(res, 202, { session, turn: { status: turn.status, ...(runId ? { runId } : {}) } });
 }
@@ -252,7 +261,7 @@ async function getFileContent(ctx: ApiCtx): Promise<void> {
   const opened = await app.openFileForViewer(id, viewer);
   if (!opened) return sendJson(res, 404, { error: "not_found" });
   res.writeHead(200, {
-    "content-type": opened.mimetype || "application/octet-stream",
+    "content-type": contentTypeWithUtf8Charset(opened.mimetype || "application/octet-stream"),
     "content-length": String(opened.sizeBytes),
     "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(opened.name)}`,
   });

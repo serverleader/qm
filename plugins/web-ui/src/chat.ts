@@ -17,7 +17,6 @@ import {
   FileText,
   Files,
   GitFork,
-  Hash,
   Maximize2,
   Paperclip,
   Pencil,
@@ -27,7 +26,6 @@ import {
   Rocket,
   ScrollText,
   Terminal,
-  Users,
   Wrench,
   type IconNode,
 } from "lucide";
@@ -52,7 +50,6 @@ import {
   makeOpenerStreamFn,
   makeRunResumeStreamFn,
   runApprovalTurn,
-  sharedContextLabel,
   TAIL_TURNS,
   type ApprovalDecision,
   type AssistantWork,
@@ -84,7 +81,9 @@ import {
   harnessSupportsFastMode,
 } from "./model-options";
 import { browserRenderableImage, formatBytes, icon, relTime } from "./ui";
-import { adminSessionLogUrl, appState, can, renderSidebarTop, syncUrlFromState } from "./shell";
+import { adminSessionLogUrl, appState, can, renderSidebarTop, switchView, syncUrlFromState } from "./shell";
+import { contextsState, scopeTitle } from "./contexts";
+import { openProjectPage, scopeCronCount, sessionTopbarTpl, setScopedSession } from "./session-scope";
 import {
   addPendingSession,
   dropPendingSession,
@@ -1024,7 +1023,7 @@ export function createChatSurface(
                 </div>`
               : nothing
           }
-          ${contextBanner()}
+          ${glanceTier ? nothing : sessionTopbar(agent)}
           ${
             glanceTier
               ? paneGlance(agent, messages, glanceTier)
@@ -1086,16 +1085,40 @@ export function createChatSurface(
     return null;
   }
 
-  function contextBanner(): TemplateResult | typeof nothing {
-    const label = sharedContextLabel(chatState.scopeId, chatState.contextName);
-    if (!label) return nothing;
-    const glyph = chatState.scopeId?.startsWith("group:") ? Users : Hash;
-    return html`<div
-      class="context-banner"
-      title="This chat runs in the ${label} context — the agent works with that context's files and memory, separate from your personal context."
-    >
-      ${icon(glyph, 13)}<span><strong>${label}</strong> context</span>
-    </div>`;
+  function pillState(needsYou: boolean, working: boolean): "needs-you" | "working" | null {
+    if (needsYou) return "needs-you";
+    return working ? "working" : null;
+  }
+
+  function sessionTopbar(agent: Agent): TemplateResult {
+    const scope = chatState.scopeId;
+    const session = sessionsState.list.find((s) =>
+      chatState.sessionId
+        ? s.id === chatState.sessionId
+        : Boolean(chatState.threadRef) && s.threadRef === chatState.threadRef,
+    );
+    const title = session?.title?.trim() || "New chat";
+    const crumb = scope && !scope.startsWith("personal:") ? scopeTitle(scope, chatState.contextName) : null;
+    const needsYou = activePendingApprovals().length > 0;
+    const working = !needsYou && (agent.state.isStreaming || chatState.resolvingApprovals.size > 0);
+    return sessionTopbarTpl({
+      crumb,
+      title,
+      onCrumb: crumb && scope ? () => openProjectPage(scope) : null,
+      pill: pillState(needsYou, working),
+      cronCount: scope ? scopeCronCount(scope, () => drawActiveChat()) : null,
+      onTool: (tool) => {
+        setScopedSession({
+          scopeId: scope ?? "",
+          sessionId: chatState.sessionId,
+          threadRef: chatState.threadRef,
+          title,
+          crumb,
+        });
+        if (scope && tool !== "memory") contextsState.selected = scope;
+        switchView(tool);
+      },
+    });
   }
 
   function chatHeader(title: string | TemplateResult, detail: string, readOnly: boolean): TemplateResult {
@@ -1775,9 +1798,20 @@ export function createChatSurface(
   }
 
   function workSeconds(work: WorkBlock): number {
-    if (work.startedAt == null) return 0;
-    const end = work.finishedAt ?? Date.now();
-    return Math.max(0, Math.round((end - work.startedAt) / 1000));
+    const times = work.activity.map((a) => a.createdAt).filter((t) => typeof t === "number" && t > 0);
+    const start = work.startedAt ?? (times.length ? Math.min(...times) : null);
+    if (start == null) return 0;
+    const live = work.status === "thinking" || work.status === "working";
+    let end = work.finishedAt;
+    if (end == null) {
+      if (live) end = Date.now();
+      else end = times.length ? Math.max(...times, start) : start;
+    }
+    return Math.max(0, Math.round((end - start) / 1000));
+  }
+
+  function workedLabel(prefix: string, secs: number): string {
+    return secs > 0 ? `${prefix} for ${secs}s` : prefix;
   }
 
   function usedToolsSuffix(work: WorkBlock): string {
@@ -1789,7 +1823,7 @@ export function createChatSurface(
     if (work.stale && (work.status === "thinking" || work.status === "working")) return "Interrupted — resuming…";
     if (work.status === "thinking") return "Thinking";
     const secs = workSeconds(work);
-    return work.status === "working" ? `Working for ${secs}s` : `Worked for ${secs}s`;
+    return work.status === "working" ? `Working for ${secs}s` : workedLabel("Worked", secs);
   }
 
   function workBlock(work: WorkBlock, isStreaming: boolean): TemplateResult {
@@ -1827,7 +1861,11 @@ export function createChatSurface(
     };
     for (const it of timeline) {
       const demoted = it.kind === "text" && (it.activity.payload as { demoted?: boolean } | null)?.demoted === true;
-      if (it.kind === "text" && !demoted) {
+      // Closing self-logs after a successful surface post are bookkeeping, not
+      // another piece of visible work. Keeping them in the transcript is useful
+      // for audit/replay, but rendering them creates an empty "Worked" fold.
+      if (demoted) continue;
+      if (it.kind === "text") {
         flushSeg();
         const text = ((it.activity.payload as { text?: string } | null)?.text ?? "").trim();
         if (text) parts.push(html`<div class="work-said">${markdown(text)}</div>`);
@@ -1836,14 +1874,15 @@ export function createChatSurface(
       }
     }
     flushSeg();
-    return html`<div class="work work-${work.status}">${parts}</div>`;
+    return parts.length ? html`<div class="work work-${work.status}">${parts}</div>` : html``;
   }
 
   function segmentSummaryLabel(items: TimelineItem[], work: WorkBlock): string {
     const tools = items.filter((it) => it.kind === "tool").length;
     if (tools > 0) return `${tools} tool call${tools === 1 ? "" : "s"}`;
     const secs = workSeconds(work);
-    return work.status === "failed" ? `Failed after ${secs}s` : `Worked for ${secs}s`;
+    if (work.status === "failed") return secs > 0 ? `Failed after ${secs}s` : "Failed";
+    return workedLabel("Worked", secs);
   }
 
   function approvalSummaryView(a: PendingApproval, expanded = false): TemplateResult {
