@@ -22,5 +22,7 @@ ENV GIT_SHA=$GIT_SHA
 RUN mkdir -p /data && chown node:node /data
 EXPOSE 8080
 
+# docker CLI for the local sandbox backend (sibling containers via the host socket)
+RUN apk add --no-cache docker-cli
 USER node
 CMD ["node", "src/index.ts"]

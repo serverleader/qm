@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 
 BASE_TAG="qm-sandbox-base:dev"
 LOCAL_TAG="${LOCAL_SANDBOX_IMAGE:-qm-sandbox-local:latest}"
-PLATFORM="linux/amd64"
+PLATFORM="${QM_SANDBOX_PLATFORM:-linux/amd64}"
 
 FINGERPRINT="$(node --input-type=module -e '
 const { computeSandboxImageFingerprint } = await import("./src/sandbox/local-sandbox.ts");

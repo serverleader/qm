@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CliError, bold, die, dim, errMessage, header, note, ok, step, warn } from "../log.ts";
@@ -401,6 +401,17 @@ function runArgs(ctx: DockerCtx, service: ServiceName, image: string): { args: s
   const cleanup = pushEnvArgs(args, serviceEnv(ctx, service), secretEnvKeys(ctx, service));
   if (service === "core") {
     args.push("-v", `${ctx.prefix}-coredata:/data`);
+    if (ctx.config.env.core?.SANDBOX_BACKEND === "local") {
+      // The local sandbox backend shells out to `docker` for per-scope
+      // sandboxes; hand core the host daemon and the socket group.
+      const sock = "/var/run/docker.sock";
+      if (existsSync(sock)) {
+        args.push("-v", `${sock}:${sock}`);
+        try {
+          args.push("--group-add", String(statSync(sock).gid));
+        } catch { /* leave group membership to the image */ }
+      }
+    }
     for (const m of layerMounts(ctx)) args.push("-v", m);
     for (const m of skillMounts(ctx)) args.push("-v", m);
   }
