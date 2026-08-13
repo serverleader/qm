@@ -122,7 +122,7 @@ test("admin model credentials are encrypted, write-only, live, and removable", a
 
 test("SuperGrok device-code sign-in stores OAuth tokens and marks xAI configured", async () => {
   let tokenCalls = 0;
-  const srv = start({}, async (input, init) => {
+  const srv = start({}, async (input, _init) => {
     const url = String(input);
     if (url.includes("/oauth2/device/code")) {
       return new Response(

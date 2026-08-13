@@ -211,7 +211,7 @@ test("naming a base model provider makes that provider's key a required deployme
 test("xAI stays optional at deploy time so SuperGrok OAuth can be completed in Admin", () => {
   const config = makeConfig({ modelProvider: "xai" });
   assert.equal(secretByName(config, "XAI_API_KEY").required, false);
-  assert.match(renderEnvExample(config), /^# XAI_API_KEY=  # optional$/m);
+  assert.match(renderEnvExample(config), /^# XAI_API_KEY= {2}# optional$/m);
 });
 
 test("the providers a deployment did not select stay optional", () => {

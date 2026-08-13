@@ -3930,7 +3930,12 @@
                 <p id="onboarding-xai-oauth-code" class="hint"></p>
                 <div class="obactions">
                   <button type="button" id="onboarding-xai-oauth-start">Sign in with SuperGrok</button>
-                  <a class="header-button hidden" id="onboarding-xai-oauth-link" href="#" target="_blank" rel="noopener noreferrer"
+                  <a
+                    class="header-button hidden"
+                    id="onboarding-xai-oauth-link"
+                    href="#"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     >Open xAI approval</a
                   >
                 </div>
@@ -7223,9 +7228,7 @@
         if (!apiKey) {
           setStatus(
             "st-onboarding-model",
-            provider === "xai"
-              ? "Enter an xAI API key, or use Sign in with SuperGrok."
-              : "Enter the provider API key.",
+            provider === "xai" ? "Enter an xAI API key, or use Sign in with SuperGrok." : "Enter the provider API key.",
             "err",
           );
           return;
