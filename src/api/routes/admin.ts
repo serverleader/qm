@@ -40,6 +40,7 @@ import {
   startXaiOAuth,
 } from "./admin/model-providers.ts";
 import { deleteCustomProvider, getCustomProviders, putCustomProvider } from "./admin/custom-providers.ts";
+import { deleteMcpServer, getMcpServers, putMcpServer } from "./admin/mcp-servers.ts";
 
 const timed =
   (handle: (ctx: ApiCtx) => void | Promise<void>) =>
@@ -66,6 +67,9 @@ const routes: ReadonlyArray<Route<ApiCtx>> = [
   { method: "PUT", path: "/v1/admin/model-providers/:provider", auth: "either", handle: putModelProvider },
   { method: "POST", path: "/v1/admin/model-providers/:provider/oauth/start", auth: "either", handle: startXaiOAuth },
   { method: "POST", path: "/v1/admin/model-providers/:provider/oauth/poll", auth: "either", handle: pollXaiOAuth },
+  { method: "GET", path: "/v1/admin/mcp-servers", auth: "either", handle: getMcpServers },
+  { method: "PUT", path: "/v1/admin/mcp-servers/:id", auth: "either", handle: putMcpServer },
+  { method: "DELETE", path: "/v1/admin/mcp-servers/:id", auth: "either", handle: deleteMcpServer },
   { method: "DELETE", path: "/v1/admin/model-providers/:provider", auth: "either", handle: deleteModelProvider },
   { method: "GET", path: "/v1/admin/custom-providers", auth: "either", handle: getCustomProviders },
   { method: "PUT", path: "/v1/admin/custom-providers/:provider", auth: "either", handle: putCustomProvider },

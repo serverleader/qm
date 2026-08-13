@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { interpolateSplitEnv } from "../deployment/deployment-layer.ts";
 import { BASE_RESIDENT_AUTH_PATHS, residentAuthPaths, type CredentialPathSpec } from "../credentials/resident-paths.ts";
-import type { ExecResult, Sandbox, SandboxHandle } from "../sandbox/sandbox.ts";
+import type { ComputerStatus, ExecResult, Sandbox, SandboxHandle } from "../sandbox/sandbox.ts";
 import { CapabilityUnsupportedError, hasParentPathSegment, supportsAgentComputerBackup } from "../sandbox/sandbox.ts";
 import type {
   CommandPolicy,
@@ -43,6 +43,7 @@ import { swallow } from "../util/errors.ts";
 import { fileArtifactId, type FileArtifactStore } from "../files/file-artifact-store.ts";
 import type { ScopedConfigStore } from "../resolution/config-store.ts";
 import { MEMORY_FILE, type MemoryService } from "../memory/memory-service.ts";
+import type { McpToolService, McpToolDescriptor } from "../mcp/mcp-tool-service.ts";
 import type { ReachResolution } from "../resolution/scope-reach.ts";
 import type {
   ControlService,
@@ -165,6 +166,8 @@ export interface ToolContext extends SurfaceToolDeps {
       signal?: AbortSignal;
     },
   ): Promise<ExecResult & { reached?: ReachedProvenance }>;
+  computerStatus(): Promise<ComputerStatus>;
+  restartComputer(): Promise<void>;
   read(path: string): Promise<ReadResult>;
   write(path: string, data?: string, share?: ShareDirective[]): Promise<WriteResult>;
   publish(input: PublishInput): Promise<PublishResult>;
@@ -173,6 +176,8 @@ export interface ToolContext extends SurfaceToolDeps {
   memoryRemember(facts: string[]): Promise<number | null>;
   memoryRewrite(content: string): Promise<true | null>;
   history(q: string, limit?: number): Promise<string[]>;
+  mcpToolDefs(): McpToolDescriptor[];
+  callMcpTool(name: string, args: Record<string, unknown>): Promise<string>;
   backgroundStart(command: string, opts?: { ttlSeconds?: number }): Promise<BackgroundStartResult>;
   backgroundPoll(
     processId: string,
@@ -396,6 +401,7 @@ export interface ToolContextDeps {
   memory?: MemoryService;
   memoryScopeId?: ScopeId;
   memoryAccess?: { write?: ScopeId; read: ScopeId[] };
+  mcp?: McpToolService;
   sessionHistory?: { search(q: string, limit?: number): Promise<string[]> };
   actingSlackUserId?: string;
   layerAuth?: {
@@ -472,6 +478,20 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
   return {
     ...(deps.credentialExecServices ? { credentialExecServices: deps.credentialExecServices } : {}),
     ...(deps.credentialExec ? { credentialExec: deps.credentialExec } : {}),
+    async computerStatus(): Promise<ComputerStatus> {
+      if (!deps.sandbox.computerStatus) {
+        throw new CapabilityUnsupportedError(deps.sandbox.profile.backend, "reporting computer status");
+      }
+      if (!writableScopeId) throw new Error("this turn has no scoped computer");
+      return deps.sandbox.computerStatus(writableScopeId);
+    },
+    async restartComputer(): Promise<void> {
+      if (!deps.sandbox.restartComputer) {
+        throw new CapabilityUnsupportedError(deps.sandbox.profile.backend, "restarting the computer");
+      }
+      if (!writableScopeId) throw new Error("this turn has no scoped computer to restart");
+      await deps.sandbox.restartComputer(writableScopeId);
+    },
     async execute(
       command: string,
       execOpts?: {
@@ -827,6 +847,15 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
     async history(q: string, limit?: number): Promise<string[]> {
       if (!deps.sessionHistory) return [];
       return deps.sessionHistory.search(q, limit);
+    },
+
+    mcpToolDefs(): McpToolDescriptor[] {
+      return deps.mcp?.toolDefs() ?? [];
+    },
+
+    async callMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
+      if (!deps.mcp) throw new Error("no MCP connectors are configured");
+      return deps.mcp.call(name, args, deps.createdBy);
     },
 
     async backgroundStart(command: string, opts?: { ttlSeconds?: number }): Promise<BackgroundStartResult> {

@@ -40,11 +40,7 @@ export function getBaseModel(id: string, fallback?: { name: string; provider: st
   }
   if (fallback) {
     const template = getModel("openrouter", "openrouter/auto" as Parameters<typeof getModel>[1]) as PiModel | undefined;
-    if (template) {
-      const model = cloneModel(template, id, fallback.name);
-      if (fallback.provider !== "openrouter") (model as { provider: string }).provider = fallback.provider;
-      return model;
-    }
+    if (template) return { ...cloneModel(template, id, fallback.name), provider: fallback.provider };
   }
   if (fallback?.provider === "xai" || id.startsWith("grok-")) {
     return xaiFallbackModel(id, fallback?.name ?? clone?.name ?? id);

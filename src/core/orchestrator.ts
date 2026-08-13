@@ -1105,6 +1105,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           ...(liveTurn ? { liveActor: true } : {}),
           ...(liveAuthorTurn ? { liveAuthor: true } : {}),
           ...(automatedTurn ? { triggered: true } : {}),
+          ...(!liveTurn && input.unattendedGrants ? { grants: input.unattendedGrants } : {}),
           threadRef: conversation.threadRef,
         };
         connectorEnv.AGENT_API_TOKEN = await mintCapabilityToken(
@@ -1647,16 +1648,25 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               ownerId: actor.id,
             }).grantees
           : [];
+        // Files posted into a group/DM conversation (e.g. a project web session) get no
+        // per-member grants from defaultPublishAudience ("auto-share deferred"), which left
+        // other members unable to load them. Grant the conversation scope itself read access
+        // so everyone party to the conversation can fetch what was posted into it.
+        const fileOwnerScopeId = toScopeId("personal", actor.id);
+        const fileGrantees = [...fileAudience];
+        if ((conversation.kind === "group" || conversation.kind === "dm") && scopeId !== fileOwnerScopeId) {
+          fileGrantees.push(scopeId);
+        }
         const fileRegistration: ArtifactRegistration = {
           store: deps.files,
-          ownerScopeId: toScopeId("personal", actor.id),
+          ownerScopeId: fileOwnerScopeId,
           createdBy: actor.id,
           createdInScope: scopeId,
           seed: input.runId ?? `${session.id}:${Date.now()}`,
-          ...(fileAudience.length
+          ...(fileGrantees.length
             ? {
                 onRegistered: async ({ ownerScopeId, path }) => {
-                  for (const granteeScopeId of fileAudience) {
+                  for (const granteeScopeId of fileGrantees) {
                     await deps.acl.grant({
                       ownerScopeId,
                       ref: path,
@@ -1874,6 +1884,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           memory: deps.memory,
           memoryScopeId,
           ...(memoryAccess ? { memoryAccess } : {}),
+          ...(deps.mcp ? { mcp: deps.mcp } : {}),
           sessionHistory: {
             search: async (q: string, limit?: number) =>
               searchSessionEntries(
@@ -2466,6 +2477,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           !result.silent
         ) {
           const firstTapeWriteFailed = !!result.tapeWriteFailed;
+          const primaryStopped = !!result.stopped;
           // The model already wrote a reply as plain assistant text — deliver that text
           // directly instead of nudging it to re-post (a nudge here re-sends near-identical
           // text, which surfaces that render assistant entries show twice).
@@ -2538,6 +2550,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               { history: nudgeHistory, ...(nudgeTape ? { tape: nudgeTape } : {}) },
             );
             if (firstTapeWriteFailed || result.tapeWriteFailed) result = { ...result, tapeWriteFailed: true };
+            if (primaryStopped && !result.stopped) result = { ...result, stopped: true };
             if (spine.surfaceOutboundCount === 0 && spine.staySilentReason === undefined && !result.silent) {
               const fallback = stripAckPrefix(result.reply ?? "", spineAckText).trim();
               if (fallback && defaultDestination && deps.deliveries) {
@@ -2676,7 +2689,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             -1,
           );
           const preTurnCovered = tapeRows ? tapeRows.covered : false;
-          if (lastSeq >= 0 && preTurnCovered && !result.tapeWriteFailed && !compactionMirrorFailed) {
+          if (lastSeq >= 0 && preTurnCovered && !result.stopped && !result.tapeWriteFailed && !compactionMirrorFailed) {
             await withManagedRosterVersion(() =>
               deps.sessions.appendTape(lease, {
                 kind: "annotation",
