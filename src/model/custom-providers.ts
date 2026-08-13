@@ -41,11 +41,15 @@ export interface CustomProviderSpec {
 const SLUG_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const RESERVED = new Set<string>([...PROVIDER_IDS, "mock"]);
 
+export function isReservedCustomProviderId(id: string): boolean {
+  return RESERVED.has(id);
+}
+
 export function validateCustomProviderSpec(spec: CustomProviderSpec): void {
   if (!SLUG_RE.test(spec.id)) {
     throw new Error(`provider id must match ${SLUG_RE} (lowercase slug), got "${spec.id}"`);
   }
-  if (RESERVED.has(spec.id)) throw new Error(`provider id "${spec.id}" is reserved`);
+  if (isReservedCustomProviderId(spec.id)) throw new Error(`provider id "${spec.id}" is reserved`);
   if (!spec.name.trim()) throw new Error("provider name is required");
   if (spec.name.length > 100) throw new Error("provider name must be 100 chars or fewer");
   if (!CUSTOM_PROVIDER_PROTOCOLS.includes(spec.protocol)) {
@@ -123,14 +127,17 @@ let version = 0;
  * built-in.
  */
 export function setCustomProviders(specs: CustomProviderSpec[]): void {
+  // Leftover rows that collide with a first-class provider (e.g. a pre-OAuth
+  // xai grok-shim) must not enter the runtime registry or models.json.
+  const usable = specs.filter((spec) => !isReservedCustomProviderId(spec.id));
   const next = new Map<string, CustomRuntimeModel>();
-  for (const spec of specs) {
+  for (const spec of usable) {
     for (const m of spec.models) {
       next.set(m.id, toRuntimeModel(spec, m));
     }
   }
   registry = next;
-  providers = specs.map((s) => ({ ...s, models: [...s.models] }));
+  providers = usable.map((s) => ({ ...s, models: [...s.models] }));
   version += 1;
 }
 

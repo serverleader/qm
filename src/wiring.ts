@@ -723,11 +723,11 @@ export function buildApp(
       ).filter(([, key]) => key),
     );
     return {
+      ...customKeys,
       ...(anthropic ? { anthropic } : {}),
       ...(openai ? { openai } : {}),
       ...(openrouter ? { openrouter } : {}),
       ...(xai ? { xai } : {}),
-      ...customKeys,
     };
   };
   const runtimeOrgScope = scopeId("org", config.orgId);

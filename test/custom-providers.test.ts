@@ -5,6 +5,7 @@ import {
   resolveCustomModel,
   isCustomModelId,
   customModelCatalog,
+  customModelsJson,
   validateCustomProviderSpec,
 } from "../src/model/custom-providers.ts";
 import { builtInModelCatalog } from "../src/model/model-catalog.ts";
@@ -124,6 +125,50 @@ test("store validates specs on upsert", async () => {
     keyMaterial: "k",
   });
   await assert.rejects(store.upsert({ ...GATEWAY, id: "anthropic" }, "k", "a@b.c"), /reserved/);
+});
+
+test("leftover reserved custom providers are ignored at runtime", async () => {
+  const backing = createMemoryMap<StoredCustomProvider>();
+  const store = createCustomProviderStore({ backing, keyMaterial: "test-key-material" });
+  await backing.put("xai", {
+    id: "xai",
+    name: "xAI (SuperGrok)",
+    protocol: "openai",
+    baseUrl: "http://grok-shim:8080/v1",
+    models: [{ id: "grok-4.6", name: "Grok 4.6" }],
+    apiKeyEnc: "not-used",
+    disabled: false,
+    updatedAt: Date.now(),
+    updatedBy: "legacy@example.com",
+  });
+  await backing.put("acme-gateway", {
+    ...GATEWAY,
+    apiKeyEnc: undefined,
+    disabled: false,
+    updatedAt: Date.now(),
+    updatedBy: "admin@example.com",
+  });
+
+  const enabled = await store.enabled();
+  assert.deepEqual(
+    enabled.map((p) => p.id),
+    ["acme-gateway"],
+    "reserved xai leftover must not be served to the runtime",
+  );
+  assert.equal(await store.resolveKey("xai"), null, "reserved leftover must not supply a key");
+
+  setCustomProviders([
+    ...enabled,
+    {
+      id: "xai",
+      name: "xAI (SuperGrok)",
+      protocol: "openai",
+      baseUrl: "http://grok-shim:8080/v1",
+      models: [{ id: "grok-4.6", name: "Grok 4.6" }],
+    },
+  ]);
+  assert.equal(customModelsJson()?.providers.xai, undefined);
+  assert.ok(customModelsJson()?.providers["acme-gateway"]);
 });
 
 test("registered models surface in the catalog and vanish on unregister", () => {
