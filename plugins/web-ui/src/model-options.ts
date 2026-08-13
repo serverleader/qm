@@ -81,6 +81,14 @@ const MODEL_CATALOG: Record<string, ModelMeta> = {
     label: "Grok 4.20 Multi Agent",
     buttonLabel: "4.20 MA",
   },
+  "grok-imagine-video": {
+    label: "Grok Imagine Video",
+    buttonLabel: "Imagine Video",
+  },
+  "grok-imagine-video-1.5": {
+    label: "Grok Imagine Video 1.5",
+    buttonLabel: "Imagine 1.5",
+  },
 };
 
 const DEFAULT_PICKER_MODEL_IDS: readonly string[] = [

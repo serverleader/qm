@@ -129,6 +129,8 @@ test("the curated catalog contains only current model families", () => {
       "grok-4.20-0309-non-reasoning",
       "grok-4.20-0309-reasoning",
       "grok-4.20-multi-agent-0309",
+      "grok-imagine-video",
+      "grok-imagine-video-1.5",
     ],
   );
   assert.equal(getRequiredModel("gpt-5.6-sol").contextWindow, 1_050_000);
@@ -152,6 +154,8 @@ test("SuperGrok catalog models resolve as first-class xAI models", () => {
   const reasoning = getRequiredModel("grok-4.20-0309-reasoning");
   assert.equal(reasoning.reasoning, true);
   assert.equal(getRequiredModel("grok-4.20-multi-agent-0309").provider, "xai");
+  assert.equal(getRequiredModel("grok-imagine-video").provider, "xai");
+  assert.equal(getRequiredModel("grok-imagine-video-1.5").name, "Grok Imagine Video 1.5");
 });
 
 test("auxiliary models come from the configured base model's own provider", () => {

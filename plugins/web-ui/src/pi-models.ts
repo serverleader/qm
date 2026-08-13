@@ -16,6 +16,8 @@ const CLONE_TEMPLATES: Readonly<Record<string, { template: string; name: string 
   "grok-4.20-0309-non-reasoning": { template: "grok-4.5", name: "Grok 4.20 0309 Non Reasoning" },
   "grok-4.20-0309-reasoning": { template: "grok-4.5", name: "Grok 4.20 0309 Reasoning" },
   "grok-4.20-multi-agent-0309": { template: "grok-4.5", name: "Grok 4.20 Multi Agent 0309" },
+  "grok-imagine-video": { template: "grok-4.5", name: "Grok Imagine Video" },
+  "grok-imagine-video-1.5": { template: "grok-4.5", name: "Grok Imagine Video 1.5" },
 };
 
 type PiModel = Model<Api>;

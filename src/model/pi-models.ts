@@ -155,6 +155,22 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     base: true,
     clone: { template: "grok-4.5", input: 1.25, output: 2.5, contextWindow: 2_000_000, maxTokens: 128_000 },
   },
+  {
+    id: "grok-imagine-video",
+    name: "Grok Imagine Video",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 0, output: 0, contextWindow: 200_000, maxTokens: 30_000 },
+  },
+  {
+    id: "grok-imagine-video-1.5",
+    name: "Grok Imagine Video 1.5",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 0, output: 0, contextWindow: 200_000, maxTokens: 30_000 },
+  },
   { id: "claude-opus-4-7", name: "Claude Opus 4.7", fastMode: true, webui: false, base: false },
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", fastMode: true, webui: false, base: false },
 ];

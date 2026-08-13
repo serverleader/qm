@@ -51,6 +51,11 @@ import {
 } from "../model/pi-models.ts";
 import { customModelsJson, customProvidersVersion } from "../model/custom-providers.ts";
 import { applyXaiSubscriptionRouting } from "../model/xai-oauth.ts";
+import {
+  formatImagineVideoReply,
+  generateXaiVideo,
+  isXaiImagineVideoModel,
+} from "../model/xai-imagine-video.ts";
 import type { XaiAuthMode } from "../model/model-credential-store.ts";
 import {
   defineHarness,
@@ -1023,6 +1028,35 @@ async function buildModelRuntime(keys: ProviderKeys | string): Promise<ModelRunt
   return runtime;
 }
 
+async function runImagineVideoTurn(
+  turn: HarnessTurnInput,
+  modelId: string,
+  resolveKeys: () => Promise<ProviderKeys>,
+): Promise<HarnessTurnResult> {
+  const keys = await resolveKeys();
+  const accessToken = keys.xai;
+  if (!accessToken) throw new Error("SuperGrok or an xAI API key is required for Imagine Video");
+  await turn.emit({
+    type: "user",
+    payload: { text: turn.input },
+    scopeLabel: turn.scopeLabel,
+  });
+  turn.recordModelCall({ model: modelId, inputTokens: countTokens(turn.input), entryCount: 1 });
+  const result = await generateXaiVideo({
+    accessToken,
+    modelId,
+    prompt: turn.input,
+    ...(turn.images?.[0] ? { image: turn.images[0] } : {}),
+  });
+  const reply = formatImagineVideoReply(result);
+  await turn.emit({
+    type: "assistant",
+    payload: { text: reply },
+    scopeLabel: turn.scopeLabel,
+  });
+  return { reply, modelCalls: 1 };
+}
+
 export async function oneShot(
   prefix: string,
   model: Model<Api>,
@@ -1245,7 +1279,7 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
   });
   const modelForTurn = async (id: string): Promise<Model<Api>> => {
     const model = getRequiredModel(id);
-    if (String(model.provider) !== "xai") return model;
+    if (String(model.provider) !== "xai" || isXaiImagineVideoModel(id)) return model;
     return (await opts?.resolveXaiAuthMode?.()) === "oauth" ? applyXaiSubscriptionRouting(model) : model;
   };
   const keyForModel = (keys: ProviderKeys, model: Model<Api>): string | undefined => keys[String(model.provider)];
@@ -1470,6 +1504,10 @@ export function createPiHarness(opts?: PiHarnessOptions): Harness {
     },
     {
       async runTurn(turn: HarnessTurnInput): Promise<HarnessTurnResult> {
+        const imagineModelId = turn.model ?? resolveModelId(turn.scopeLabel);
+        if (isXaiImagineVideoModel(imagineModelId)) {
+          return runImagineVideoTurn(turn, imagineModelId, resolveProviderKeys);
+        }
         const {
           entry,
           compileMs,
