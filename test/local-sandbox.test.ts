@@ -274,7 +274,10 @@ test("containerized core reaches the exec daemon by container name on a peer net
     seen.some((u) => u.startsWith(`http://${h.id}:8080/`)),
     `expected container-dns health checks, got ${JSON.stringify(seen.slice(0, 3))}`,
   );
-  assert.equal(seen.some((u) => u.includes("127.0.0.1")), false);
+  assert.equal(
+    seen.some((u) => u.includes("127.0.0.1")),
+    false,
+  );
   assert.equal(fake.networkConnections.has(`qm-shadowagent:${h.id}`), true);
   const r = await sb.run(h, "echo hello");
   assert.equal(r.stdout.trim(), "hello");

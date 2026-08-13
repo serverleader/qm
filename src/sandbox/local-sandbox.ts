@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { orgId as configOrgId } from "../config.ts";
 import { arch, hostname } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { readdir, readFile as fsReadFile } from "node:fs/promises";
 import type { WorkspaceLayer } from "../types.ts";
 import type { WorkspaceStore } from "../workspace/workspace-store.ts";
@@ -116,14 +117,10 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
   async function peerNetwork(): Promise<string | null> {
     if (opts.peerNetwork !== undefined) return opts.peerNetwork.trim() || null;
     discoveredPeer ??= (async () => {
+      if (!existsSync("/.dockerenv") && !existsSync("/run/.containerenv")) return null;
       const id = hostname().trim();
       if (!id) return null;
-      const r = await dexec([
-        "inspect",
-        "-f",
-        "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}",
-        id,
-      ]);
+      const r = await dexec(["inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}", id]);
       if (r.code !== 0) return null;
       const nets = r.stdout
         .split("\n")

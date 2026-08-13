@@ -111,11 +111,12 @@ test("web-turn gate refuses a keyless model cleanly, accepts it once the provide
   const refused = validateWebTurnModelOptions({ model: "gpt-5.6-sol" }, null, noOpenai);
   assert.match(refused ?? "", /provider isn't configured/);
   assert.equal(
-    validateWebTurnModelOptions(
-      { model: "gpt-5.6-sol" },
-      null,
-      { anthropic: true, openai: true, openrouter: false, xai: false },
-    ),
+    validateWebTurnModelOptions({ model: "gpt-5.6-sol" }, null, {
+      anthropic: true,
+      openai: true,
+      openrouter: false,
+      xai: false,
+    }),
     null,
   );
 });

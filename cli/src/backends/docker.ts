@@ -409,7 +409,9 @@ function runArgs(ctx: DockerCtx, service: ServiceName, image: string): { args: s
         args.push("-v", `${sock}:${sock}`);
         try {
           args.push("--group-add", String(statSync(sock).gid));
-        } catch { /* leave group membership to the image */ }
+        } catch {
+          /* leave group membership to the image */
+        }
       }
     }
     for (const m of layerMounts(ctx)) args.push("-v", m);
