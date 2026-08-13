@@ -12,6 +12,10 @@ const CLONE_TEMPLATES: Readonly<Record<string, { template: string; name: string 
   "gpt-5.6-luna": { template: "gpt-5.5", name: "GPT-5.6 Luna" },
   "grok-4.6": { template: "grok-4.5", name: "Grok 4.6" },
   "grok-4.5": { template: "grok-4.5", name: "Grok 4.5" },
+  "grok-composer-2.5-fast": { template: "grok-4.5", name: "Grok Composer 2.5 Fast" },
+  "grok-4.20-0309-non-reasoning": { template: "grok-4.5", name: "Grok 4.20 0309 Non Reasoning" },
+  "grok-4.20-0309-reasoning": { template: "grok-4.5", name: "Grok 4.20 0309 Reasoning" },
+  "grok-4.20-multi-agent-0309": { template: "grok-4.5", name: "Grok 4.20 Multi Agent 0309" },
 };
 
 type PiModel = Model<Api>;

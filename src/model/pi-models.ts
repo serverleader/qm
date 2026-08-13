@@ -39,6 +39,7 @@ interface ModelEntry {
     cacheWrite?: number;
     contextWindow: number;
     maxTokens: number;
+    reasoning?: boolean;
   };
 }
 
@@ -107,6 +108,53 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     clone: { template: "grok-4.5", input: 2, output: 6, contextWindow: 500_000, maxTokens: 128_000 },
   },
   { id: "grok-4.3", name: "Grok 4.3", fastMode: false, webui: true, base: true, auxiliary: true },
+  {
+    id: "grok-build-0.1",
+    name: "Grok Build 0.1",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-build-0.1", input: 1, output: 2, contextWindow: 256_000, maxTokens: 30_000 },
+  },
+  {
+    id: "grok-composer-2.5-fast",
+    name: "Grok Composer 2.5 Fast",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 1, output: 2, contextWindow: 200_000, maxTokens: 30_000 },
+  },
+  {
+    id: "grok-4.20-0309-non-reasoning",
+    name: "Grok 4.20 0309 Non Reasoning",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: {
+      template: "grok-4.5",
+      input: 1.25,
+      output: 2.5,
+      contextWindow: 2_000_000,
+      maxTokens: 128_000,
+      reasoning: false,
+    },
+  },
+  {
+    id: "grok-4.20-0309-reasoning",
+    name: "Grok 4.20 0309 Reasoning",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 1.25, output: 2.5, contextWindow: 2_000_000, maxTokens: 128_000 },
+  },
+  {
+    id: "grok-4.20-multi-agent-0309",
+    name: "Grok 4.20 Multi Agent 0309",
+    fastMode: false,
+    webui: true,
+    base: true,
+    clone: { template: "grok-4.5", input: 1.25, output: 2.5, contextWindow: 2_000_000, maxTokens: 128_000 },
+  },
   { id: "claude-opus-4-7", name: "Claude Opus 4.7", fastMode: true, webui: false, base: false },
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", fastMode: true, webui: false, base: false },
 ];
@@ -164,6 +212,7 @@ export function resolveModel(id: string): PiModel | undefined {
             cacheRead: entry.clone.input / 10,
             cacheWrite: entry.clone.cacheWrite ?? 0,
           },
+          ...(entry.clone.reasoning !== undefined ? { reasoning: entry.clone.reasoning } : {}),
         })
       : undefined;
   }

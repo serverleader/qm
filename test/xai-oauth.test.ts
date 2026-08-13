@@ -81,4 +81,7 @@ test("subscription routing sends Grok through the SuperGrok CLI proxy", () => {
   assert.equal(routed.headers?.["X-XAI-Token-Auth"], "xai-grok-cli");
   assert.equal(routed.headers?.["x-grok-model-override"], "grok-4.6");
   assert.equal(routed.headers?.["x-grok-client-mode"], "interactive");
+
+  const composer = applyXaiSubscriptionRouting(getRequiredModel("grok-composer-2.5-fast"));
+  assert.equal(composer.headers?.["x-grok-model-override"], "grok-composer-2.5-fast");
 });

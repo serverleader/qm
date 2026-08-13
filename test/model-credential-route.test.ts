@@ -76,6 +76,11 @@ test("admin model credentials are encrypted, write-only, live, and removable", a
         { id: "grok-4.6", name: "Grok 4.6", provider: "xai" },
         { id: "grok-4.5", name: "Grok 4.5", provider: "xai" },
         { id: "grok-4.3", name: "Grok 4.3", provider: "xai" },
+        { id: "grok-build-0.1", name: "Grok Build 0.1", provider: "xai" },
+        { id: "grok-composer-2.5-fast", name: "Grok Composer 2.5 Fast", provider: "xai" },
+        { id: "grok-4.20-0309-non-reasoning", name: "Grok 4.20 0309 Non Reasoning", provider: "xai" },
+        { id: "grok-4.20-0309-reasoning", name: "Grok 4.20 0309 Reasoning", provider: "xai" },
+        { id: "grok-4.20-multi-agent-0309", name: "Grok 4.20 Multi Agent 0309", provider: "xai" },
       ],
     });
     const scopeBefore = await fetch(`${srv.base}/v1/admin/scopes/org%3Adefault-org`, { headers: ADMIN });
