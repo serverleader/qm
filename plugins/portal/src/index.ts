@@ -306,6 +306,7 @@ export function isPrivateNetworkUrl(raw: string): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (!host.includes(".")) return true; // single-label host: container-network DNS, never Internet-routable
   if (host.endsWith(".internal") || host.endsWith(".flycast") || host.endsWith(".local")) return true;
   if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) || /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
   if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
