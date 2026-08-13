@@ -36,6 +36,7 @@ import { clearAllDrafts, saveDraft, storedDraft } from "./drafts";
 import { deepLinkPath, isPlainLeftClick, parseDeepLink, UI_BASE } from "./deep-link";
 import {
   addBlankPane,
+  adoptRemoteSplit,
   canvasToast,
   drawCanvas,
   exitSplitIfActive,
@@ -83,11 +84,6 @@ export const ADMIN_BASE = (() => {
   return base ? base.replace(/\/[^/]+$/, "/admin") : "/admin";
 })();
 export const ADMIN_HOME_URL = `${ADMIN_BASE}/`;
-
-export function adminSessionLogUrl(sessionId: string, scopeId: string): string {
-  const q = new URLSearchParams({ view: "history", scope: scopeId, session: sessionId });
-  return `${ADMIN_BASE}/?${q.toString()}`;
-}
 
 export function syncUrlFromState(): void {
   const chatState = mainConversation().state;
@@ -838,6 +834,7 @@ export async function boot(): Promise<void> {
   ensureDeliveryStream();
   warmDeferredChunks();
   loadPersistedSplit();
+  await adoptRemoteSplit();
 
   const params = new URLSearchParams(location.search);
   const {

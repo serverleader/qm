@@ -32,6 +32,7 @@ import { createSkillBundleStore, type SkillBundle, type SkillBundleStore } from 
 import { createGitFetcher, resolvePackAuth, type SkillPackFetcher } from "./skills/pack-fetcher.ts";
 import { installSeedSkills } from "./skills/seed.ts";
 import { createMemoryMap, createPostgresMapFactory, type DurableMap } from "./persistence/durable-map.ts";
+import type { PersistedUiState, UiStateStore } from "./surfaces/ui-state.ts";
 import { createPostgresLeaderLease, createNoopLeaderLease, type LeaderLease } from "./persistence/leader-lease.ts";
 import {
   createMemoryAdvisoryLock,
@@ -362,6 +363,7 @@ export interface BuiltApp {
   ambientJudgments?: AmbientJudgmentStore;
   ackEmojiPicks?: AckEmojiPickStore;
   channelPolicy: ChannelPolicyStore;
+  uiState: UiStateStore;
   skillSyncEngine: SkillSyncEngine;
   slackCore: SlackCoreClient;
 }
@@ -513,13 +515,13 @@ export function buildApp(
       }
     };
     skillsReady = Promise.all([
-      installCatalogs().catch((e) => console.error("[seed] failed to install seed skills:", e)),
-      deploymentLayerReady.catch((e) => console.error("[seed] deployment layer not ready:", e)),
+      installCatalogs().catch((e) => console.error("[seed] failed to install seed skills:", errMessage(e))),
+      deploymentLayerReady.catch((e) => console.error("[seed] deployment layer not ready:", errMessage(e))),
     ]).then(() => undefined);
   } else {
     skillsReady = deploymentLayerReady.then(
       () => undefined,
-      (e) => console.error("[seed] deployment layer not ready:", e),
+      (e) => console.error("[seed] deployment layer not ready:", errMessage(e)),
     );
   }
   const rateLimitOpts = { maxPerWindow: config.rateLimitPerWindow, windowMs: config.rateLimitWindowMs };
@@ -1270,6 +1272,7 @@ export function buildApp(
     leaderLease,
     directory,
     currentScopeMembers,
+    sessions,
     ...(config.databaseUrl
       ? { jobQueue: createPgBossCronQueue(config.databaseUrl, undefined, config.cronFireConcurrency) }
       : {}),
@@ -1291,6 +1294,7 @@ export function buildApp(
           run: (req) => app.turn(req),
           directory,
           currentScopeMembers,
+          sessions,
           leaderLease,
           heartbeatMs: config.monitorHeartbeatMs,
         })
@@ -1488,6 +1492,7 @@ export function buildApp(
     ...(ambientJudgments ? { ambientJudgments } : {}),
     ...(ackEmojiPicks ? { ackEmojiPicks } : {}),
     channelPolicy,
+    uiState: artifactMap<PersistedUiState>("web_ui_state"),
     skillSyncEngine,
     slackCore,
   };
