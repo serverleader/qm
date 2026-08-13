@@ -33,16 +33,18 @@ export function imagineVideoDurationFromPrompt(prompt: string): number | undefin
   return Math.min(15, Math.max(1, seconds));
 }
 
-export function imagineVideoStartError(status: number, payload: { error?: unknown; message?: unknown }): string {
+function imagineVideoDetail(payload: { error?: unknown; message?: unknown }): string {
   const err = payload.error;
-  const detail =
-    typeof err === "string"
-      ? err
-      : err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string"
-        ? (err as { message: string }).message
-        : typeof payload.message === "string"
-          ? payload.message
-          : "";
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string") {
+    return (err as { message: string }).message;
+  }
+  if (typeof payload.message === "string") return payload.message;
+  return "";
+}
+
+function imagineVideoStartError(status: number, payload: { error?: unknown; message?: unknown }): string {
+  const detail = imagineVideoDetail(payload);
   return detail ? `Imagine Video start failed (${status}): ${detail}` : `Imagine Video start failed (${status})`;
 }
 

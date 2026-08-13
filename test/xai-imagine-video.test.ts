@@ -84,8 +84,7 @@ test("Imagine Video start errors include the API message", async () => {
       accessToken: "xai-oauth",
       modelId: "grok-imagine-video-1.5",
       prompt: "Make the dog go crazy",
-      fetcher: async () =>
-        new Response(JSON.stringify({ error: "expected struct ImageUrl" }), { status: 422 }),
+      fetcher: async () => new Response(JSON.stringify({ error: "expected struct ImageUrl" }), { status: 422 }),
     }),
     /422.*expected struct ImageUrl/,
   );

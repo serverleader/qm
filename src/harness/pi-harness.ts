@@ -51,11 +51,7 @@ import {
 } from "../model/pi-models.ts";
 import { customModelsJson, customProvidersVersion } from "../model/custom-providers.ts";
 import { applyXaiSubscriptionRouting } from "../model/xai-oauth.ts";
-import {
-  formatImagineVideoReply,
-  generateXaiVideo,
-  isXaiImagineVideoModel,
-} from "../model/xai-imagine-video.ts";
+import { formatImagineVideoReply, generateXaiVideo, isXaiImagineVideoModel } from "../model/xai-imagine-video.ts";
 import type { XaiAuthMode } from "../model/model-credential-store.ts";
 import {
   defineHarness,
