@@ -42,9 +42,12 @@ interface PendingDevice {
 const pending = new Map<string, PendingDevice>();
 type OAuthFetch = typeof fetch;
 
+const OS_LABELS: Record<string, string> = { darwin: "macos", win32: "windows" };
+const ARCH_LABELS: Record<string, string> = { arm64: "aarch64", x64: "x86_64" };
+
 function platformLabel(): string {
-  const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
-  const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+  const os = OS_LABELS[process.platform] ?? process.platform;
+  const arch = ARCH_LABELS[process.arch] ?? process.arch;
   return `${os}; ${arch}`;
 }
 

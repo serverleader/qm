@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { orgId as configOrgId } from "../config.ts";
-import { arch } from "node:os";
+import { arch, hostname } from "node:os";
 import { join } from "node:path";
 import { readdir, readFile as fsReadFile } from "node:fs/promises";
 import type { WorkspaceLayer } from "../types.ts";
@@ -116,7 +116,7 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
   async function peerNetwork(): Promise<string | null> {
     if (opts.peerNetwork !== undefined) return opts.peerNetwork.trim() || null;
     discoveredPeer ??= (async () => {
-      const id = process.env.HOSTNAME?.trim();
+      const id = hostname().trim();
       if (!id) return null;
       const r = await dexec([
         "inspect",
