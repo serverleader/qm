@@ -49,6 +49,38 @@ const MODEL_CATALOG: Record<string, ModelMeta> = {
     label: "GPT-5.6 Luna",
     buttonLabel: "5.6 Luna",
   },
+  "grok-4.6": {
+    label: "Grok 4.6",
+    buttonLabel: "4.6",
+  },
+  "grok-4.5": {
+    label: "Grok 4.5",
+    buttonLabel: "4.5",
+  },
+  "grok-4.3": {
+    label: "Grok 4.3",
+    buttonLabel: "4.3",
+  },
+  "grok-build-0.1": {
+    label: "Grok Build 0.1",
+    buttonLabel: "Build 0.1",
+  },
+  "grok-composer-2.5-fast": {
+    label: "Grok Composer 2.5 Fast",
+    buttonLabel: "Composer",
+  },
+  "grok-4.20-0309-non-reasoning": {
+    label: "Grok 4.20 Non Reasoning",
+    buttonLabel: "4.20 NR",
+  },
+  "grok-4.20-0309-reasoning": {
+    label: "Grok 4.20 Reasoning",
+    buttonLabel: "4.20 R",
+  },
+  "grok-4.20-multi-agent-0309": {
+    label: "Grok 4.20 Multi Agent",
+    buttonLabel: "4.20 MA",
+  },
 };
 
 const DEFAULT_PICKER_MODEL_IDS: readonly string[] = [
