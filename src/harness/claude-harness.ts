@@ -40,6 +40,7 @@ import {
   renderDetectPrompt,
 } from "./pi-harness.ts";
 import { coreToolOptions, createPiTools, type PiToolsOptions, type ToolContextRef } from "./pi-tools.ts";
+import type { McpToolDescriptor } from "../mcp/mcp-tool-service.ts";
 import { reconstructMessagesFromHistory, seedPriorTurns, type PiReplayMessage } from "./replay.ts";
 
 export interface ClaudeHarnessOptions {
@@ -51,6 +52,7 @@ export interface ClaudeHarnessOptions {
   scratchExec?: boolean;
   ownerAuthExec?: boolean;
   reachExec?: boolean;
+  mcpTools?: () => McpToolDescriptor[];
   controlTools?: boolean;
   turnWallClockMs?: number;
   execTimeoutMs?: number;
@@ -194,6 +196,7 @@ function toolOptions(opts: ClaudeHarnessOptions, turn?: HarnessTurnInput): PiToo
     scratchExec: opts.scratchExec,
     ownerAuthExec: opts.ownerAuthExec,
     reachExec: opts.reachExec,
+    ...(opts.mcpTools ? { mcpTools: opts.mcpTools } : {}),
     controlTools: opts.controlTools,
     execTimeoutMs: opts.execTimeoutMs,
     execTimeoutCeilingMs: opts.execTimeoutCeilingMs,
@@ -525,9 +528,8 @@ export function createClaudeHarness(opts: ClaudeHarnessOptions = {}): Harness {
     const wallMs = turn.turnWallClockMs ?? defaultTurnWallClockMs;
     let timer: NodeJS.Timeout | undefined;
     let signalsStopped = false;
-    const recordedRequest = {
+    const recordedEnvelope = {
       system: turn.systemPrompt,
-      prompt: text,
       tools: allowSubagents ? ["Agent"] : [],
       allowedTools: [...(allowSubagents ? ["Agent"] : []), ...bridgedNames],
       childAgents: allowSubagents ? childAgents : {},
@@ -557,7 +559,7 @@ export function createClaudeHarness(opts: ClaudeHarnessOptions = {}): Harness {
           turnSeq: userEntry.seq,
           step,
           model,
-          request: step === 0 ? recordedRequest : { prompt: steerPrompts[step - 1] ?? "[steer]" },
+          promptEnvelope: recordedEnvelope,
           truncated: false,
           transport: { modelId: model },
           ttftMs: message.subtype === "success" ? (message.ttft_ms ?? null) : null,
@@ -803,7 +805,7 @@ export function createClaudeHarness(opts: ClaudeHarnessOptions = {}): Harness {
             turnSeq: userEntry.seq,
             step: 0,
             model,
-            request: recordedRequest,
+            promptEnvelope: recordedEnvelope,
             truncated: false,
             transport: { modelId: model },
           });

@@ -30,7 +30,7 @@ import {
 import { UI_BASE } from "./deep-link";
 import { errMessage } from "../../chassis/src/errors";
 import { actionSnippet, closeFormMenus, fieldSelect, formatBytes, icon, initials, relTime, toggleFormMenu } from "./ui";
-import { appState, renderSidebarTop, replacePanePreservingFocus, switchView, syncUrlFromState } from "./shell";
+import { appState, replacePanePreservingFocus, switchView, syncUrlFromState } from "./shell";
 import { mainConversation } from "./conversations";
 import { groupDmTitle, openSession, refreshSessions, sessionsState, slackLogo, surfaceOf } from "./sessions";
 import { activityOf } from "./session-list";
@@ -39,6 +39,7 @@ import { cronRunSummary, cronRunSummaryTitle, cronScheduleSummary } from "./cron
 import { restoreDialogFocus } from "./dialog-focus";
 import { ambientPolicySection, loadAmbientPolicy, resetAmbientPolicy } from "./ambient-policy";
 import { contextModelSection, loadContextModel, resetContextModel } from "./context-model";
+import { channelHeaderSection, loadChannelHeader, resetChannelHeader } from "./channel-header";
 
 interface ScopeFile {
   id: string;
@@ -190,6 +191,7 @@ export async function renderContexts(): Promise<void> {
     void loadScopeResources(contextsState.selected);
     void loadAmbientPolicy(contextsState.selected, drawContexts);
     void loadContextModel(contextsState.selected, drawContexts);
+    void loadChannelHeader(contextsState.selected, drawContexts);
   }
   drawContexts();
 }
@@ -506,7 +508,7 @@ function detailTpl(c: CoreContext): TemplateResult {
         </div>
         <aside class="context-settings" aria-label=${c.project ? "Project settings" : "Context settings"}>
           ${c.project ? projectMembersSection(c) : nothing} ${c.project ? projectSlackSection(c) : nothing}
-          ${contextModelSection(c.scopeId)} ${ambientPolicySection(c.scopeId)}
+          ${contextModelSection(c.scopeId)} ${channelHeaderSection(c.scopeId)} ${ambientPolicySection(c.scopeId)}
         </aside>
       </div>
     </div>
@@ -1429,12 +1431,14 @@ function selectContext(scopeId: string | null): void {
   contextsState.resourcesLoading = false;
   resetAmbientPolicy();
   resetContextModel();
+  resetChannelHeader();
   syncUrlFromState();
   drawContexts();
   if (scopeId) {
     void loadScopeResources(scopeId);
     void loadAmbientPolicy(scopeId, drawContexts);
     void loadContextModel(scopeId, drawContexts);
+    void loadChannelHeader(scopeId, drawContexts);
   }
 }
 
@@ -1443,7 +1447,5 @@ function startChatIn(c: CoreContext): void {
 }
 
 async function openFromContext(s: CoreSession): Promise<void> {
-  appState.currentView = "chats";
-  renderSidebarTop();
   await openSession(s);
 }
