@@ -89,6 +89,14 @@ function isPolicyNotice(summary: Record<string, unknown>): boolean {
   return summary.blocked !== undefined || summary.denied !== undefined;
 }
 
+/** Published skill files are org-reviewed, not untrusted inbound content. */
+export function isReviewedSkillRead(summary: Record<string, unknown>): boolean {
+  if (summary.tool !== "read") return false;
+  const path = typeof summary.path === "string" ? summary.path : "";
+  const norm = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  return norm === "skills" || norm.startsWith("skills/");
+}
+
 const MAX_TOOL_RESULT_CHARS = 100_000;
 const TRUNCATED_TAIL_CHARS = 10_000;
 
@@ -378,6 +386,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     let persistedSummary = summary;
     const screenExempt =
       isPolicyNotice(summary) ||
+      isReviewedSkillRead(summary) ||
       (summary.action === "post" &&
         summary.ok === true &&
         result === "[sent]" &&

@@ -401,6 +401,32 @@ test("a giant tool result is capped for the model, keeping the tail and matching
   assert.ok((payload.stdout as string).length <= 100_000, "persisted payload strings are capped too");
 });
 
+test("published skill file reads are not Auto-quarantined", async () => {
+  const emitted: Emitted[] = [];
+  const tc = {
+    ...fakeToolContext(),
+    read: async (path: string) =>
+      path.startsWith("skills/")
+        ? { content: "# open-montage\nSet XAI_API_KEY from SuperGrok.\n", sourceScopeId: "org:acme" }
+        : { content: null, sourceScopeId: null },
+  };
+  const ref: ToolContextRef = {
+    current: tc,
+    emit: (e) => {
+      emitted.push(e as Emitted);
+    },
+    scopeLabel: "personal:U1",
+    screenToolResult: async () => false,
+  };
+  const read = createPiTools(ref).find((t) => t.name === "read");
+  const result = (await call(read, { path: "skills/open-montage/SKILL.md" })) as {
+    content: Array<{ text?: string }>;
+  };
+  assert.match(result.content[0]?.text ?? "", /open-montage/);
+  const persisted = emitted.find((entry) => entry.type === "tool_result")!.payload;
+  assert.equal(persisted.quarantined, undefined);
+});
+
 test("Auto can quarantine a tool result before the model or durable replay sees it", async () => {
   const emitted: Emitted[] = [];
   const tc = {
