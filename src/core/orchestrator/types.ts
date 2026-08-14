@@ -28,6 +28,7 @@ import type { CredentialUsageSink } from "../../admin/credential-usage-sink.ts";
 import type { LivenessCache } from "../../credentials/resident-auth.ts";
 import type { ConnectorStatusCache } from "../../credentials/connector-status.ts";
 import type { ModelGateway } from "../../model/model-gateway.ts";
+import type { ModelCredentialStore } from "../../model/model-credential-store.ts";
 import type { AuditLog } from "../../audit/audit-log.ts";
 import type { SecurityScreener } from "../../security/security-screener.ts";
 import type { RateLimiter } from "../../ratelimit/rate-limiter.ts";
@@ -102,6 +103,7 @@ export interface OrchestratorDeps {
   files: FileArtifactStore;
   sandbox: Sandbox;
   modelGateway: ModelGateway;
+  modelCredentials?: ModelCredentialStore;
   auditLog: AuditLog;
   rateLimiter: RateLimiter;
   budget?: BudgetTracker;

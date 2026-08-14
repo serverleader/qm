@@ -983,6 +983,7 @@ export function buildApp(
     sandbox,
     connectorTokens,
     modelGateway,
+    modelCredentials,
     auditLog,
     rateLimiter,
     budget,

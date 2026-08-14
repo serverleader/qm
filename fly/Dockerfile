@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git curl wget jq unzip \
       nftables \
       python3 python3-venv python3-pip \
+      ffmpeg \
       ca-certificates gnupg \
   && rm -rf /var/lib/apt/lists/*
 

@@ -28,6 +28,7 @@ import { createBackgroundBroker } from "../connectors/background-exec-broker.ts"
 import { createMonitorBroker, readBackgroundOutputTail } from "../monitors/monitor-broker.ts";
 import { isPollSurface, isSilentPollReply } from "../triggers/run-trigger.ts";
 import { envKey } from "../credentials/connector-token.ts";
+import { mergeXaiSandboxEnv } from "../model/xai-sandbox-env.ts";
 import { renderKeychainManifest, type MaterializedEnvCred } from "../credentials/keychain.ts";
 import { captureDeviceFlowLogins, deviceFlowCredOwner } from "../credentials/device-flow-persist.ts";
 import type { DeviceFlowCutoverMode } from "../credentials/device-flow-cutover.ts";
@@ -1057,6 +1058,13 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           connectorEnv.BROWSE_LAB_MODEL = browseChoice.id;
           connectorEnv.BROWSE_LAB_MODEL_PROVIDER = browseChoice.provider;
         }
+      }
+      if (!strictReadOnly && allInternal && deps.modelCredentials) {
+        const [xaiToken, xaiAuthMode] = await Promise.all([
+          deps.modelCredentials.resolve("xai"),
+          deps.modelCredentials.authMode("xai"),
+        ]);
+        Object.assign(connectorEnv, mergeXaiSandboxEnv(connectorEnv, { token: xaiToken, authMode: xaiAuthMode }));
       }
       let actorIsOrgAdmin = false;
       let orgMemoryWrite: ScopeId | undefined;
