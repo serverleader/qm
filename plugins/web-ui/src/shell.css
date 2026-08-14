@@ -991,8 +991,11 @@ a.chat-row-open {
   position: relative;
 }
 /* Glance tiers render no top bar: two children (glance, dock), two rows. */
+/* Panes render no session topbar either (the pane tab is the header) — same two-row
+   grid, or the transcript falls into the auto row and the composer into the 1fr row. */
 [data-density="card"] .custom-chat-shell,
-[data-density="strip"] .custom-chat-shell {
+[data-density="strip"] .custom-chat-shell,
+.custom-chat-shell.in-pane {
   grid-template-rows: minmax(0, 1fr) auto;
 }
 .drop-overlay {
@@ -7411,4 +7414,24 @@ h3.ambient-field-label {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11px;
   color: var(--muted-foreground);
+}
+.chat-search-group.archived b {
+  color: var(--muted-foreground, #8a8a8a);
+}
+.chat-search-archived-tag {
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground, #8a8a8a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chat-search-row.archived {
+  opacity: 0.65;
+}
+.chat-search-failed {
+  color: var(--destructive, #b42318);
 }
