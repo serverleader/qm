@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates gnupg \
   && rm -rf /var/lib/apt/lists/*
 
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
+  && uv --version
+
 COPY --from=node-runtime /usr/local/ /usr/local/
 
 ARG TARGETARCH

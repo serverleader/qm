@@ -69,7 +69,7 @@ function collectAssets(repo: FetchedRepo, skillDir: string): SkillFile[] | null 
     if (!f.path.startsWith(prefix)) continue;
     const rel = f.path.slice(prefix.length);
     if (rel === "SKILL.md" || rel.includes("/SKILL.md")) continue;
-    if (f.binary) return null;
+    if (f.binary) continue;
     let safe: string;
     try {
       safe = safeSkillFilePath(rel);

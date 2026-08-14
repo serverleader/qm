@@ -29,6 +29,7 @@ import { createAclStore, type AclStore } from "./acl/acl-store.ts";
 import { createPostgresGrantStore } from "./acl/postgres-grant-store.ts";
 import { createSkillStore, type SkillStore, type Skill } from "./skills/skill-store.ts";
 import { createSkillPackStore, type SkillPack } from "./skills/skill-pack-store.ts";
+import { ensureLast30daysSkillPack } from "./skills/marketplace-packs.ts";
 import { createSkillBundleStore, type SkillBundle, type SkillBundleStore } from "./skills/skill-bundle-store.ts";
 import { createGitFetcher, resolvePackAuth, type SkillPackFetcher } from "./skills/pack-fetcher.ts";
 import { installSeedSkills } from "./skills/seed.ts";
@@ -1204,6 +1205,19 @@ export function buildApp(
     ...(config.brandingDefault ? { brandingDefault: config.brandingDefault } : {}),
     ...(harness.models.pickAckEmoji ? { pickAckEmoji: (t, c) => harness.models.pickAckEmoji!(t, c) } : {}),
   });
+  void skillsReady
+    .then(() =>
+      ensureLast30daysSkillPack({
+        packs: skillPacks,
+        register: (input) => app.registerSkillPack(input),
+        importPack: (id, selected, scopes) => app.importSkillPack(id, selected, scopes),
+        orgScopeId: runtimeOrgScope,
+      }),
+    )
+    .then((action) => {
+      if (action === "imported") console.log("[seed] last30days marketplace pack imported");
+    })
+    .catch((e) => console.error("[seed] last30days marketplace pack failed:", errMessage(e)));
   runs.onTerminal((run) => {
     void runs
       .activeForThread(run.sessionId)

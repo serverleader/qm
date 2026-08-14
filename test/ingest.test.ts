@@ -43,14 +43,14 @@ test("planIngest classifies eligibility with reasons and excludes by config", ()
   assert.equal(by("personal-skill")!.excludeReason, "scope");
   assert.equal(by("private-skill")!.excludeReason, "private");
   assert.equal(by("publish")!.excludeReason, "collision");
-  assert.equal(by("with-binary")!.excludeReason, "binary-asset");
+  assert.equal(by("with-binary")!.eligible, true);
   assert.equal(by("malformed")!.excludeReason, "malformed");
 
-  assert.equal(counts.eligible, 4);
+  assert.equal(counts.eligible, 5);
   assert.equal(counts.scope, 1);
   assert.equal(counts.private, 1);
   assert.equal(counts.collision, 1);
-  assert.equal(counts["binary-asset"], 1);
+  assert.equal(counts["binary-asset"], 0);
   assert.equal(counts.malformed, 1);
 });
 
@@ -79,7 +79,7 @@ test("importPack publishes eligible skills with provenance + assets; native publ
   });
 
   const res = await importPack(repo(), store, { pack, selected: "all", nativeNames: new Set(["publish"]) });
-  assert.deepEqual(res.imported.sort(), ["both-skill", "company-directory", "no-scope", "with-asset"]);
+  assert.deepEqual(res.imported.sort(), ["both-skill", "company-directory", "no-scope", "with-asset", "with-binary"]);
 
   const published = (await store.list()).filter((s) => s.status === "published");
   const imported = published.find((s) => s.manifest.name === "with-asset")!;
