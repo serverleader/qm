@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { escapeHtml } from "../../chassis/src/http.ts";
+import { analyticsOrigin, analyticsScriptTag } from "../../chassis/src/analytics.ts";
 
 const CONFIRM_SCRIPT = `(function () {
   var key = "qm.signin.token";
@@ -17,13 +18,14 @@ const CONFIRM_SCRIPT = `(function () {
 
 const CONFIRM_SCRIPT_HASH = `sha256-${createHash("sha256").update(CONFIRM_SCRIPT, "utf8").digest("base64")}`;
 
-export const PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const analyticsHost = analyticsOrigin();
+export const PAGE_CSP = analyticsHost
+  ? `default-src 'none'; script-src ${analyticsHost}; connect-src ${analyticsHost}; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
+  : "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
-export const CONFIRM_PAGE_CSP = PAGE_CSP.replace(
-  "default-src 'none';",
-  `default-src 'none'; script-src '${CONFIRM_SCRIPT_HASH}';`,
-);
+export const CONFIRM_PAGE_CSP = analyticsHost
+  ? PAGE_CSP.replace(`script-src ${analyticsHost}`, `script-src '${CONFIRM_SCRIPT_HASH}' ${analyticsHost}`)
+  : PAGE_CSP.replace("default-src 'none';", `default-src 'none'; script-src '${CONFIRM_SCRIPT_HASH}';`);
 
 const STYLE = `<style>
   :root{
@@ -97,6 +99,7 @@ function page(o: {
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(o.title)} · ${escapeHtml(o.brandName)}</title>
 ${STYLE}
+${analyticsScriptTag()}
 </head>
 <body>
   <main>

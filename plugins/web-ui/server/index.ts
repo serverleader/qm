@@ -21,6 +21,7 @@ import {
 } from "../../chassis/src/http.ts";
 import { verifyPortalIdentity, PORTAL_IDENTITY_HEADER } from "../../chassis/src/portal-identity.ts";
 import { createBrandingCache, injectBranding } from "../../chassis/src/branding.ts";
+import { analyticsCspSource, injectAnalyticsHead } from "../../chassis/src/analytics.ts";
 import {
   CORE_API_URL as CORE,
   CORE_ORG_ID as ORG,
@@ -59,7 +60,8 @@ async function brandIndexHtml(html: string): Promise<string> {
   const branding = await brandingCache.forRender();
   const branded = injectBranding(html, branding);
   const label = branding.selfLabel?.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return label ? branded.replace(/<title>[^<]*<\/title>/, () => `<title>${label} · Web</title>`) : branded;
+  const titled = label ? branded.replace(/<title>[^<]*<\/title>/, () => `<title>${label} · Web</title>`) : branded;
+  return injectAnalyticsHead(titled);
 }
 
 const portalTokenStore = new AsyncLocalStorage<string | undefined>();
@@ -127,13 +129,14 @@ const CONTENT_TYPES: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
+const analyticsSrc = analyticsCspSource();
 const SPA_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
+  `script-src 'self' 'wasm-unsafe-eval'${analyticsSrc}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${analyticsSrc}`,
   "frame-src 'self' https:",
   "worker-src 'self' blob:",
   "frame-ancestors 'self'",

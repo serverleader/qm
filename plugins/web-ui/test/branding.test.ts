@@ -59,6 +59,12 @@ test("the vite template carries the self-label anchor the server injects into", 
   assert.match(template, /<meta name="brand-self-label" content="QM"\s*\/?>/);
 });
 
+test("the vite template does not hardcode a page tracker", () => {
+  const template = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(template, /script\.js/);
+  assert.doesNotMatch(template, /data-site-id/);
+});
+
 test("brandName() reads the injected self-label and falls back to the product name", async () => {
   const ui = await import("../src/ui.ts");
   const brandName = (ui as { brandName?: () => string }).brandName;

@@ -41,6 +41,7 @@ import { coreClaimStore, withinRateLimit } from "../../chassis/src/claims.ts";
 import { mintPortalIdentity, PORTAL_IDENTITY_HEADER } from "../../chassis/src/portal-identity.ts";
 import { errMessage } from "../../chassis/src/errors.ts";
 import { json, escapeHtml, serveEmojiFavicon } from "../../chassis/src/http.ts";
+import { analyticsOrigin, analyticsScriptTag } from "../../chassis/src/analytics.ts";
 import {
   CORE_API_URL as CORE,
   CORE_ORG_ID as ORG,
@@ -234,8 +235,9 @@ async function isAdmin(sub: string): Promise<boolean> {
   return (await adminProbe(sub)).isAdmin;
 }
 
-const PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+const PAGE_CSP = analyticsOrigin()
+  ? `default-src 'none'; script-src ${analyticsOrigin()}; connect-src ${analyticsOrigin()}; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
+  : "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 function sendHtml(res: ServerResponse, status: number, html: string): void {
   res.writeHead(status, {
@@ -426,6 +428,7 @@ function cardPage(o: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(o.title)} · Portal</title>
 ${CARD_STYLE}
+${analyticsScriptTag()}
 </head>
 <body>
   <main>
@@ -518,7 +521,7 @@ const connectStyle = (): string => `<style>
 
 function connectPage(o: { title: string; body: string; action?: string }): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(o.title)} · Portal</title>${connectStyle()}</head>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(o.title)} · Portal</title>${connectStyle()}${analyticsScriptTag()}</head>
 <body><div class="card"><h1>${escapeHtml(o.title)}</h1><p>${escapeHtml(o.body)}</p>${o.action ?? ""}</div></body></html>`;
 }
 

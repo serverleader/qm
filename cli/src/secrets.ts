@@ -386,6 +386,54 @@ export const FIRST_PARTY_SECRET_SPECS: readonly SecretSpec[] = [
     required: { when: { kind: "env-equals", service: "auth", name: "AUTH_EMAIL_TRANSPORT", value: "smtp" } },
     description: "SMTP password for the sign-in-link relay.",
   },
+  {
+    name: "ANALYTICS_ORIGIN",
+    service: "web-ui",
+    required: false,
+    description: "Optional HTTPS origin of a first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_ORIGIN",
+    service: "admin",
+    required: false,
+    description: "Optional HTTPS origin of a first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_ORIGIN",
+    service: "portal",
+    required: false,
+    description: "Optional HTTPS origin of a first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_ORIGIN",
+    service: "auth",
+    required: false,
+    description: "Optional HTTPS origin of a first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_SITE_ID",
+    service: "web-ui",
+    required: false,
+    description: "Optional site id for the first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_SITE_ID",
+    service: "admin",
+    required: false,
+    description: "Optional site id for the first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_SITE_ID",
+    service: "portal",
+    required: false,
+    description: "Optional site id for the first-party page tracker. Leave unset to disable.",
+  },
+  {
+    name: "ANALYTICS_SITE_ID",
+    service: "auth",
+    required: false,
+    description: "Optional site id for the first-party page tracker. Leave unset to disable.",
+  },
 ];
 
 function conditionMatches(config: QmConfig, condition: SecretCondition): boolean {

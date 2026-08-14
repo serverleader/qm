@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { signedRequestHeaders, withSourceAuthNonce } from "../../chassis/src/core-client.ts";
 import { json, readBody, cookie } from "../../chassis/src/http.ts";
 import { createBrandingCache, injectBranding, type OrgBranding } from "../../chassis/src/branding.ts";
+import { analyticsCspSource, injectAnalyticsHead } from "../../chassis/src/analytics.ts";
 import { verifyPortalIdentity, PORTAL_IDENTITY_HEADER } from "../../chassis/src/portal-identity.ts";
 import {
   CORE_API_URL as CORE,
@@ -29,12 +30,13 @@ const BASE_HTML = readFileSync(
   "utf8",
 ).replaceAll("__ADMIN_BASE__", () => ADMIN_BASE_PATH);
 const ADMIN_SCRIPT = BASE_HTML.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+const analyticsSrc = analyticsCspSource();
 const ADMIN_CSP = [
   "default-src 'self'",
-  `script-src 'sha256-${createHash("sha256").update(ADMIN_SCRIPT).digest("base64")}'`,
+  `script-src 'sha256-${createHash("sha256").update(ADMIN_SCRIPT).digest("base64")}'${analyticsSrc}`,
   "style-src 'unsafe-inline'",
   "img-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${analyticsSrc}`,
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "form-action 'self'",
@@ -64,7 +66,7 @@ let shellCache: { key: string; html: string; gzip: Buffer; etag: string } | null
 function brandedShell(branding: OrgBranding): { html: string; gzip: Buffer; etag: string } {
   const key = JSON.stringify([branding.accent, branding.mark, branding.selfLabel]);
   if (shellCache?.key === key) return shellCache;
-  const html = injectBranding(BASE_HTML, branding);
+  const html = injectAnalyticsHead(injectBranding(BASE_HTML, branding));
   shellCache = {
     key,
     html,
