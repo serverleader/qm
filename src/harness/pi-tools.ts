@@ -89,12 +89,28 @@ function isPolicyNotice(summary: Record<string, unknown>): boolean {
   return summary.blocked !== undefined || summary.denied !== undefined;
 }
 
+function normalizeToolPath(summary: Record<string, unknown>): string {
+  const path = typeof summary.path === "string" ? summary.path : "";
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
 /** Published skill files are org-reviewed, not untrusted inbound content. */
 export function isReviewedSkillRead(summary: Record<string, unknown>): boolean {
   if (summary.tool !== "read") return false;
-  const path = typeof summary.path === "string" ? summary.path : "";
-  const norm = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  const norm = normalizeToolPath(summary);
   return norm === "skills" || norm.startsWith("skills/");
+}
+
+/**
+ * last30days writes briefings into LAST30DAYS_MEMORY_DIR (Last30Days/) and
+ * last-report.json. Those files already wrap scraped web text as data; Auto
+ * otherwise quarantines the skill's own deliverable.
+ */
+export function isLast30daysEngineRead(summary: Record<string, unknown>): boolean {
+  if (summary.tool !== "read") return false;
+  const norm = normalizeToolPath(summary);
+  if (/(^|\/)Last30Days(\/|$)/.test(norm)) return true;
+  return /(^|\/)\.config\/last30days\/last-report\.json$/.test(norm);
 }
 
 const MAX_TOOL_RESULT_CHARS = 100_000;
@@ -387,6 +403,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     const screenExempt =
       isPolicyNotice(summary) ||
       isReviewedSkillRead(summary) ||
+      isLast30daysEngineRead(summary) ||
       (summary.action === "post" &&
         summary.ok === true &&
         result === "[sent]" &&
