@@ -66,7 +66,7 @@ let shellCache: { key: string; html: string; gzip: Buffer; etag: string } | null
 function brandedShell(branding: OrgBranding): { html: string; gzip: Buffer; etag: string } {
   const key = JSON.stringify([branding.accent, branding.mark, branding.selfLabel]);
   if (shellCache?.key === key) return shellCache;
-  const html = injectAnalyticsHead(injectBranding(BASE_HTML, branding));
+  const html = injectAnalyticsHead(injectBranding(BASE_HTML, branding, { titleSuffix: "Admin" }));
   shellCache = {
     key,
     html,
