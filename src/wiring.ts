@@ -981,6 +981,7 @@ export function buildApp(
     identity,
     resolution,
     config: configStore,
+    ...(config.brandingDefault ? { brandingDefault: config.brandingDefault } : {}),
     sessionTapeMode: config.sessionTapeMode,
     sessions,
     workspace,
