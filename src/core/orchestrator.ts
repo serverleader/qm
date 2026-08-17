@@ -1101,6 +1101,14 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
       let actorIsOrgAdmin = false;
       let orgMemoryWrite: ScopeId | undefined;
       let controlClaims: CapabilityClaims | undefined;
+      const scopeAttestation = {
+        actorId: actor.id,
+        scopeId,
+        ...(input.scopeVersion ? { scopeVersion: input.scopeVersion } : {}),
+        ...(conversation.publishMembers ? { members: conversation.publishMembers } : {}),
+        ...(liveTurn ? { liveActor: true } : {}),
+        ...(input.botActor ? { botActor: true } : {}),
+      };
       if (!strictReadOnly && deps.signingSecret && deps.apiBaseUrl) {
         const destination = defaultDestination;
         connectorEnv.AGENT_API_URL = deps.apiBaseUrl;
@@ -1122,16 +1130,13 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           ? { ...memoryAccess, ...(orgMemoryWrite ? { orgWrite: orgMemoryWrite } : {}) }
           : undefined;
         controlClaims = {
-          actorId: actor.id,
-          scopeId,
-          ...(input.scopeVersion ? { scopeVersion: input.scopeVersion } : {}),
+          ...scopeAttestation,
           aud: CONTROL_PLANE_AUD,
           exp: Date.now() + CAPABILITY_TTL_MS,
           ...(turnTimezone ? { timezone: turnTimezone } : {}),
           ...(destination ? { destination } : {}),
           ...(delivery.candidates.length > 0 ? { destinations: delivery.candidates } : {}),
           ...(delivery.defaultKey ? { defaultDestinationKey: delivery.defaultKey } : {}),
-          ...(conversation.publishMembers ? { members: conversation.publishMembers } : {}),
           ...(conversation.kind !== "dm"
             ? { keychainMembers: conversation.audience.filter((p) => p.type === "internal") }
             : {}),
@@ -1142,7 +1147,6 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             ? { privateScope: true }
             : {}),
           ...(memoryClaim ? { memory: memoryClaim } : {}),
-          ...(liveTurn ? { liveActor: true } : {}),
           ...(liveAuthorTurn ? { liveAuthor: true } : {}),
           ...(automatedTurn ? { triggered: true } : {}),
           ...(!liveTurn && input.unattendedGrants ? { grants: input.unattendedGrants } : {}),
@@ -1154,9 +1158,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         );
         connectorEnv.AGENT_OAUTH_CONSENT_TOKEN = await mintCapabilityToken(
           {
-            actorId: actor.id,
-            scopeId,
-            ...(input.scopeVersion ? { scopeVersion: input.scopeVersion } : {}),
+            ...scopeAttestation,
             aud: OAUTH_CONSENT_AUD,
             exp: Date.now() + CAPABILITY_TTL_MS,
           },
@@ -1172,9 +1174,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             if (slugs.length > 0) {
               connectorEnv.AGENT_CREDENTIAL_TOKEN = await mintCapabilityToken(
                 {
-                  actorId: actor.id,
-                  scopeId,
-                  ...(input.scopeVersion ? { scopeVersion: input.scopeVersion } : {}),
+                  ...scopeAttestation,
                   aud: CREDENTIAL_BROKER_AUD,
                   credentials: slugs,
                   exp: Date.now() + CAPABILITY_TTL_MS,
@@ -1213,8 +1213,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
       if (!strictReadOnly && egressSecret) {
         egressTokenForTurn = await mintCapabilityToken(
           {
-            actorId: actor.id,
-            scopeId,
+            ...scopeAttestation,
             aud: EGRESS_PROXY_AUD,
             egress: egressClaimAllowingControlPlane(
               resolution.egress,
